@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'" />
+  <title>Synthesis</title>
+  <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- macOS traffic-light drag strip -->
+  <div id="titlebar" class="drag">
+    <div class="brand"><img class="brand-logo" src="assets/logo-variations/Synthesis-icon.png" alt="" />Synthesis</div>
+    <div id="titlebar-title" class="drag">workspace</div>
+    <button id="files-toggle-btn" class="titlebar-files-btn" data-tip="Hide file manager" aria-label="Hide file manager" aria-expanded="true"><span aria-hidden="true">▤</span> files</button>
+  </div>
+
+  <div id="app">
+    <!-- LEFT: workspaces (visible by default, collapsible, resizable) -->
+    <aside id="sidebar">
+      <div class="rail">
+        <button id="ws-expand" class="icon-btn" data-tip="Show workspaces">◧</button>
+        <span class="rail-label">Workspaces</span>
+      </div>
+      <div class="panel">
+        <div class="side-head">
+          <span>Workspaces</span>
+          <div class="head-actions">
+            <button id="add-btn" class="icon-btn" data-tip="New workspace (⌘T)">+</button>
+            <button id="ws-collapse" class="icon-btn" data-tip="Hide workspaces">«</button>
+          </div>
+        </div>
+        <div id="workspace-list"></div>
+        <div class="side-foot">
+          <button id="settings-btn" class="side-settings-btn" data-tip="Settings (⌘,)" aria-label="Open settings"><span aria-hidden="true">⚙</span><span>Settings</span></button>
+          <span id="ws-count">0 sessions</span>
+        </div>
+      </div>
+    </aside>
+
+    <div id="resize-ws" class="v-resize" data-tip="Drag to resize · double-click to reset"></div>
+
+    <!-- CENTER: tiled terminals -->
+    <main id="center">
+      <div id="term-host"></div>
+    </main>
+
+    <div id="resize-fs" class="v-resize" data-tip="Drag to resize · double-click to reset"></div>
+
+    <!-- RIGHT: file viewer (fully collapsible from the top menu) -->
+    <aside id="files">
+      <div class="panel">
+        <header class="side-head">
+          <span>Files</span>
+          <span id="files-root"></span>
+          <button id="files-tools-toggle" class="icon-btn" aria-label="File tools" aria-expanded="false" aria-controls="files-tools-actions files-toolbar files-crumb" data-tip="File tools">⋯</button>
+        </header>
+        <div id="files-tools-actions" class="files-tools-actions head-actions">
+            <button id="fs-pick" class="icon-btn" data-tip="Open file or folder picker (⌘O)" aria-label="Open file or folder"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4 1.75h5l3 3v9.5H4z"/><path d="M9 1.75v3h3"/></svg></button>
+            <button id="files-home" class="icon-btn" data-tip="Go to workspace directory">⌂</button>
+            <button id="files-refresh" class="icon-btn" data-tip="Refresh file list">↻</button>
+        </div>
+        <div id="files-toolbar">
+          <input id="files-filter" type="search" placeholder="Filter…" spellcheck="false" aria-label="Filter files" />
+          <button id="files-hidden" class="icon-btn" data-tip="Show hidden files" aria-pressed="false" aria-label="Toggle hidden files">◌</button>
+          <button id="files-view-btn" class="ghost-btn files-mode-btn" data-tip="Switch to tree view" aria-label="Toggle tree view">tree</button>
+        </div>
+        <nav id="files-crumb" class="mono"></nav>
+        <div id="files-body"></div>
+        <footer id="files-meta"></footer>
+      </div>
+    </aside>
+  </div>
+
+  <!-- STATUS BAR -->
+  <footer id="statusbar">
+    <div class="status-left">
+      <span class="status-dot"></span>
+      <span id="status-ws">—</span>
+      <span class="sep">·</span>
+      <span id="status-cwd" class="mono dim"></span>
+    </div>
+    <div class="status-right">
+      <span id="status-shell">zsh</span>
+      <span class="sep">·</span>
+      <span>UTF-8</span>
+      <span class="sep">·</span>
+      <span id="status-pts">1 pty</span>
+    </div>
+  </footer>
+
+  <!-- NEW WORKSPACE MODAL -->
+  <div id="modal-backdrop" class="hidden">
+    <div id="modal">
+      <h2>New workspace</h2>
+      <label>Name
+        <input id="modal-name" type="text" spellcheck="false" placeholder="e.g. api refactor" />
+      </label>
+      <label>Start directory
+        <div class="input-row">
+          <input id="modal-dir" type="text" spellcheck="false" />
+          <button id="modal-browse" class="ghost-btn" data-tip="Choose a directory">Browse…</button>
+        </div>
+      </label>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="ghost-btn">Cancel</button>
+        <button id="modal-create" class="accent-btn">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SAVED TERMINAL HISTORY -->
+  <div id="history-backdrop" class="hidden">
+    <section id="history-dialog" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <header class="history-header">
+        <div class="history-heading">
+          <h2 id="history-title">Saved terminal history</h2>
+          <p id="history-subtitle"></p>
+        </div>
+        <div class="history-actions">
+          <button id="history-copy" class="ghost-btn">Copy</button>
+          <button id="history-close" class="settings-close" aria-label="Close history">×</button>
+        </div>
+      </header>
+      <pre id="history-content" tabindex="0">Loading saved output…</pre>
+      <footer id="history-meta"></footer>
+    </section>
+  </div>
+
+  <!-- APPLICATION SETTINGS -->
+  <div id="settings-backdrop" class="hidden">
+    <section id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="settings-header">
+        <div>
+          <h2 id="settings-title">Settings</h2>
+          <p>Personalise your terminal workspace</p>
+        </div>
+        <button id="settings-close" class="settings-close" aria-label="Close settings">×</button>
+      </header>
+      <div class="settings-layout">
+        <nav id="settings-tabs" class="settings-tabs" aria-label="Settings sections">
+          <button class="settings-tab active" data-settings-tab="appearance">Appearance</button>
+          <button class="settings-tab" data-settings-tab="behavior">Behavior</button>
+          <button class="settings-tab" data-settings-tab="keyboard">Keyboard</button>
+        </nav>
+        <div class="settings-pages">
+          <section class="settings-page" data-settings-page="appearance">
+            <div class="settings-section-title">Appearance</div>
+            <div class="settings-row">
+              <div class="settings-copy">
+                <label>Accent colour</label>
+                <p>Used for highlights, controls, and the terminal cursor.</p>
+              </div>
+              <div class="accent-control">
+                <div id="accent-presets" class="accent-presets">
+                  <button class="accent-swatch" data-accent="#ff7a1a" aria-label="Orange accent" title="Orange"></button>
+                  <button class="accent-swatch" data-accent="#5b9cff" aria-label="Blue accent" title="Blue"></button>
+                  <button class="accent-swatch" data-accent="#45cba0" aria-label="Mint accent" title="Mint"></button>
+                  <button class="accent-swatch" data-accent="synthesis" aria-label="Synthesis logo gradient accent" title="Synthesis · Lilac, sky and mint"></button>
+                  <button class="accent-swatch" data-accent="#ff6b8a" aria-label="Rose accent" title="Rose"></button>
+                </div>
+                <label class="custom-accent" title="Choose a custom accent colour">
+                  <input id="setting-accent-custom" type="color" aria-label="Custom accent colour" />
+                  <span>Custom</span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-copy">
+                <label for="setting-font-size">Terminal font size</label>
+                <p>Adjust the text size in every pane.</p>
+              </div>
+              <select id="setting-font-size" class="settings-select">
+                <option value="11">11 px</option>
+                <option value="12">12 px</option>
+                <option value="13">13 px</option>
+                <option value="14">14 px</option>
+                <option value="16">16 px</option>
+                <option value="18">18 px</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <div class="settings-copy">
+                <label for="setting-cursor-style">Cursor style</label>
+                <p>Choose the terminal text cursor shape.</p>
+              </div>
+              <select id="setting-cursor-style" class="settings-select">
+                <option value="bar">Bar</option>
+                <option value="block">Block</option>
+                <option value="underline">Underline</option>
+              </select>
+            </div>
+            <div class="settings-row settings-row-last">
+              <div class="settings-copy">
+                <label for="setting-cursor-blink">Blinking cursor</label>
+                <p>Animate the cursor in active terminal panes.</p>
+              </div>
+              <input id="setting-cursor-blink" class="settings-checkbox" type="checkbox" />
+            </div>
+          </section>
+
+          <section class="settings-page hidden" data-settings-page="behavior">
+            <div class="settings-section-title">Behavior</div>
+            <div class="settings-row">
+              <div class="settings-copy">
+                <label for="setting-scrollback">Scrollback history</label>
+                <p>Lines kept for live scrolling. Use a pane’s options menu to browse saved output.</p>
+              </div>
+              <select id="setting-scrollback" class="settings-select">
+                <option value="2000">2,000 lines</option>
+                <option value="5000">5,000 lines</option>
+                <option value="10000">10,000 lines</option>
+                <option value="20000">20,000 lines</option>
+                <option value="50000">50,000 lines</option>
+                <option value="100000">100,000 lines</option>
+              </select>
+            </div>
+            <div class="settings-row settings-row-last">
+              <div class="settings-copy">
+                <label for="setting-confirm-close">Confirm before closing a session</label>
+                <p>Warn before stopping the processes in a workspace.</p>
+              </div>
+              <input id="setting-confirm-close" class="settings-checkbox" type="checkbox" />
+            </div>
+          </section>
+
+          <section class="settings-page hidden" data-settings-page="keyboard">
+            <div class="settings-section-title">Keyboard shortcuts</div>
+            <p class="settings-intro">Click a shortcut to record a new key combination. Use ⌘ or Ctrl with a key.</p>
+            <div id="keybinding-list" class="keybinding-list"></div>
+            <p id="shortcut-status" class="shortcut-status" role="status">Click a shortcut to record it. Press Esc to cancel.</p>
+            <button id="settings-reset-bindings" class="text-button">Reset shortcuts</button>
+          </section>
+        </div>
+      </div>
+      <footer class="settings-footer">
+        <button id="settings-reset" class="text-button">Reset all settings</button>
+        <button id="settings-done" class="accent-btn">Done</button>
+      </footer>
+    </section>
+  </div>
+
+  <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="lib/pane-status.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synthesis · Workspace Card — Timer Variations</title>
+<style>
+  :root {
+    --bg: #0B0B0B;
+    --stage: #0E0E0E;
+    --card: #161616;
+    --accent: #E5825A;
+    --accent-soft: #DD8158;
+    --ink: #EDEDED;
+    --muted: #74747A;
+    --dim: #55555C;
+    --dot-off: #33271F;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 40px 72px;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  /* ---------- page header ---------- */
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: var(--ink);
+    margin-bottom: 10px;
+  }
+  .lede {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--muted);
+    max-width: 620px;
+  }
+  .lede .acc { color: var(--accent-soft); }
+
+  .rule {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 36px 0 32px;
+  }
+
+  /* ---------- variation grid ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px;
+  }
+  @media (max-width: 1020px) { .grid { grid-template-columns: 1fr; } }
+
+  .stage {
+    background: var(--stage);
+    border: 1px solid rgba(255,255,255,0.045);
+    border-radius: 18px;
+    padding: 48px 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+  }
+
+  .caption { padding: 18px 4px 0; }
+  .caption .head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 7px;
+  }
+  .caption .idx {
+    font-size: 11px;
+    color: var(--accent-soft);
+    letter-spacing: 0.08em;
+  }
+  .caption .name { font-size: 14px; font-weight: 700; color: var(--ink); }
+  .caption .note {
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--muted);
+    max-width: 440px;
+  }
+
+  /* ---------- workspace card (shared chrome — unchanged from app) ---------- */
+  .ws-card {
+    position: relative;
+    width: 460px;
+    max-width: 100%;
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.045);
+    border-radius: 16px;
+    padding: 32px 30px 28px 40px;
+    transition: border-color 0.25s ease;
+  }
+  .ws-card:hover { border-color: rgba(255,255,255,0.09); }
+
+  .accent-bar {
+    position: absolute;
+    left: 6px;
+    top: 26px;
+    bottom: 26px;
+    width: 5px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #ED8B62 0%, var(--accent) 50%, #D2724E 100%);
+  }
+
+  .ws-title {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    line-height: 1;
+    color: var(--ink);
+  }
+
+  .ws-status {
+    margin-top: 24px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+
+  .dot-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 7px);
+    grid-template-rows: repeat(3, 7px);
+    gap: 6px;
+    flex: none;
+  }
+  .dot-grid span {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--dot-off);
+    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  }
+  .dot-grid span.lit {
+    background: var(--accent);
+    box-shadow: 0 0 5px rgba(229, 130, 90, 0.45);
+    transform: scale(1.08);
+  }
+
+  .ws-status-text {
+    font-size: 19px;
+    line-height: 1;
+    color: var(--accent-soft);
+  }
+
+  .ws-path {
+    margin-top: 22px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------- timer base ---------- */
+  .timer {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    font-size: 19px;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .timer .colon { opacity: 1; }
+
+  /* ---------- 01 · ghost ---------- */
+  .t-ghost {
+    color: var(--dim);
+    transition: color 0.25s ease;
+  }
+  .ws-card:hover .t-ghost { color: #9A9AA0; }
+
+  /* ---------- 02 · accent ---------- */
+  .t-accent { color: var(--accent); }
+  .t-accent .colon { animation: colon-blink 1s steps(1, end) infinite; }
+  @keyframes colon-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.3; } }
+
+  /* ---------- 03 · chip ---------- */
+  .t-chip {
+    gap: 9px;
+    padding: 7px 15px;
+    border-radius: 999px;
+    background: rgba(229, 130, 90, 0.09);
+    border: 1px solid rgba(229, 130, 90, 0.16);
+    color: var(--accent);
+    transition: background 0.25s ease, border-color 0.25s ease;
+  }
+  .ws-card:hover .t-chip {
+    background: rgba(229, 130, 90, 0.13);
+    border-color: rgba(229, 130, 90, 0.24);
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(229, 130, 90, 0.7);
+    animation: live-pulse 1.6s ease-in-out infinite;
+    flex: none;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.82); }
+  }
+
+  /* ---------- 04 · ring (vertically centred at the card's far right) ---------- */
+  .t-ring {
+    position: absolute;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0;
+    gap: 12px;
+  }
+  .t-ring .time { color: var(--muted); font-size: 18px; }
+  .ring { width: 34px; height: 34px; flex: none; }
+  .ring .track { fill: none; stroke: var(--dot-off); stroke-width: 2.5; }
+  .ring .prog {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: center;
+    transition: stroke-dashoffset 0.7s ease;
+  }
+
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 44px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--dim);
+    max-width: 620px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot-grid span, .live-dot, .t-accent .colon { animation: none !important; transition: none !important; }
+    .ring .prog { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Synthesis · Sidebar workspace card</div>
+    <h1>Working state — timer refinements</h1>
+    <p class="lede">
+      Four quiet options for an elapsed-time readout on the far right of the working row.
+      The card chrome, the <span class="acc">accent bar</span> and the dot-spark
+      <span class="acc">working animation</span> are untouched — only the timer treatment changes.
+    </p>
+  </header>
+
+  <hr class="rule">
+
+  <div class="grid">
+
+    <!-- 01 -->
+    <section>
+      <div class="stage">
+        <div class="ws-card">
+          <div class="accent-bar"></div>
+          <div class="ws-title">Test</div>
+          <div class="ws-status">
+            <div class="dot-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <span class="ws-status-text">working</span>
+            <div class="timer t-ghost"><span class="tm">12</span><span class="colon">:</span><span class="ts">47</span></div>
+          </div>
+          <div class="ws-path">~/Documents/Test Worksp…</div>
+        </div>
+      </div>
+      <div class="caption">
+        <div class="head"><span class="idx">01</span><span class="name">Ghost</span></div>
+        <p class="note">The timer sits in the same grey family as the path and almost disappears into the card. Hovering the card lifts it just enough to read — present when wanted, silent otherwise.</p>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section>
+      <div class="stage">
+        <div class="ws-card">
+          <div class="accent-bar"></div>
+          <div class="ws-title">Test</div>
+          <div class="ws-status">
+            <div class="dot-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <span class="ws-status-text">working</span>
+            <div class="timer t-accent"><span class="tm">12</span><span class="colon">:</span><span class="ts">47</span></div>
+          </div>
+          <div class="ws-path">~/Documents/Test Worksp…</div>
+        </div>
+      </div>
+      <div class="caption">
+        <div class="head"><span class="idx">02</span><span class="name">Accent</span></div>
+        <p class="note">Same position and size, but coloured with the working accent so the elapsed time reads as part of the live state. The colon ticks with each second — the only motion added.</p>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section>
+      <div class="stage">
+        <div class="ws-card">
+          <div class="accent-bar"></div>
+          <div class="ws-title">Test</div>
+          <div class="ws-status">
+            <div class="dot-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <span class="ws-status-text">working</span>
+            <div class="timer t-chip"><span class="live-dot"></span><span class="tm">12</span><span class="colon">:</span><span class="ts">47</span></div>
+          </div>
+          <div class="ws-path">~/Documents/Test Worksp…</div>
+        </div>
+      </div>
+      <div class="caption">
+        <div class="head"><span class="idx">03</span><span class="name">Chip</span></div>
+        <p class="note">A low-contrast pill with a softly pulsing live dot. It gives the timer a touchable target (a natural home for pause or stop later) without adding any real chrome to the card.</p>
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section>
+      <div class="stage">
+        <div class="ws-card card-v4">
+          <div class="accent-bar"></div>
+          <div class="ws-title">Test</div>
+          <div class="ws-status">
+            <div class="dot-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <span class="ws-status-text">working</span>
+          </div>
+          <div class="ws-path">~/Documents/Test Worksp…</div>
+          <div class="timer t-ring">
+            <span class="time"><span class="tm">12</span><span class="colon">:</span><span class="ts">47</span></span>
+            <svg class="ring" viewBox="0 0 34 34">
+              <circle class="track" cx="17" cy="17" r="14"></circle>
+              <circle class="prog" cx="17" cy="17" r="14" stroke-dasharray="87.96" stroke-dashoffset="87.96"></circle>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="caption">
+        <div class="head"><span class="idx">04</span><span class="name">Ring</span></div>
+        <p class="note">Time as progress: the numerals stay quiet while a thin ring shows movement through the session (filling across 30 minutes). Centred on the card's right edge rather than the row.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="foot">
+    All four cards share the exact app palette sampled from the recording — #161616 surface,
+    #E5825A accent — and the same spark animation: a single dot lights at random across the
+    3×3 grid every ~0.3s. Timers run live on this page and count upward from 12:47.
+  </p>
+
+</div>
+
+<script>
+  // ---- spark animation: one random dot lit at a time, re-seeded ~every 0.3s ----
+  document.querySelectorAll('.dot-grid').forEach(grid => {
+    const dots = [...grid.children];
+    let prev = -1;
+    const tick = () => {
+      let i;
+      do { i = Math.floor(Math.random() * dots.length); } while (i === prev);
+      if (prev >= 0) dots[prev].classList.remove('lit');
+      dots[i].classList.add('lit');
+      prev = i;
+      setTimeout(tick, 240 + Math.random() * 160);
+    };
+    tick();
+  });
+
+  // ---- live elapsed timers (count up from 12:47) ----
+  const BASE = 12 * 60 + 47;
+  const t0 = Date.now();
+  const timers = document.querySelectorAll('.timer');
+  const ring = document.querySelector('.ring .prog');
+  const RING_LEN = 2 * Math.PI * 14;
+
+  function refresh() {
+    const s = BASE + Math.floor((Date.now() - t0) / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    timers.forEach(t => {
+      const m = t.querySelector('.tm'), sec = t.querySelector('.ts');
+      if (m) m.textContent = mm;
+      if (sec) sec.textContent = ss;
+    });
+    if (ring) {
+      const p = (s % 1800) / 1800;             // progress through a 30-minute session
+      ring.setAttribute('stroke-dashoffset', String(RING_LEN * (1 - p)));
+    }
+  }
+  refresh();
+  setInterval(refresh, 250);
+</script>
+</body>
+</html>

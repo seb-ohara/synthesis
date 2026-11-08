@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pi — Chat</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><span class="mark">π</span><span>pi <span class="brand-light">agent</span></span><button class="icon mobile-close" id="close-sidebar" aria-label="Close sidebar">×</button></div>
+    <button class="new-chat" id="new-chat"><span>＋</span> New chat <kbd>⌘ K</kbd></button>
+    <div class="side-label">Your conversations</div>
+    <div id="history" class="history"><div class="empty-history">Your chats will appear here.</div></div>
+    <div class="sidebar-bottom"><div class="avatar">P</div><div><strong>Personal workspace</strong><small>Local session</small></div><span class="more">•••</span></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button class="icon menu" id="open-sidebar" aria-label="Open sidebar">☰</button><div class="top-title">New chat <span class="chevron">⌄</span></div><div class="top-right"><span class="status-dot"></span><span>UI preview</span></div></header>
+    <div class="conversation" id="conversation">
+      <div class="welcome" id="welcome"><div class="welcome-mark">π<span>.</span></div><h1>What can we make together?</h1><p>Bring an idea, a question, or something you're working on.</p><div class="suggestions"><button data-prompt="Help me think through an idea">✳ <span>Think through an idea</span></button><button data-prompt="Help me write something">✎ <span>Write something</span></button><button data-prompt="Help me understand a topic">◈ <span>Explore a topic</span></button></div></div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+    </div>
+    <div class="composer-area"><div class="composer-wrap"><div class="skill-menu" id="skill-menu" hidden><div class="skill-heading">Skills <span>Type to filter</span></div><div id="skill-list"></div><div class="skill-hint">↑↓ to navigate <span>↵ to select</span><span>esc to close</span></div></div><form id="composer" class="composer"><textarea id="prompt" rows="1" placeholder="Message Pi…" aria-label="Message Pi"></textarea><div class="composer-actions"><div class="composer-left"><label class="select-label"><span class="sr-only">Model</span><select id="model" aria-label="Model"><option>GPT-5</option><option>GPT-5 mini</option><option>GPT-4.1</option><option>GPT-4.1 mini</option><option>o3</option><option>o4-mini</option></select></label><label class="select-label"><span class="sr-only">Reasoning level</span><select id="reasoning" aria-label="Reasoning level"><option>Medium</option><option>Low</option><option>High</option><option>None</option></select></label><span class="divider"></span><span class="skill-shortcut">Type <kbd>/</kbd> for skills</span></div><button class="send" aria-label="Send message" title="Send message" disabled>↑</button></div></form><div class="metrics"><div class="metric context"><span class="ring"></span><span>Context</span><strong>—</strong></div><div class="metric"><span>First token</span><strong>—</strong></div><div class="metric"><span>Speed</span><strong>—</strong></div><div class="metric"><span>Spend</span><strong>—</strong></div><span class="preview-note">Preview · not connected</span></div><p class="disclaimer">A little space to think, build, and explore.</p></div></div>
+  </main>
+</div><script src="app.js"></script></body></html>

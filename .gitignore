@@ -1,0 +1,19 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+tmp/
+output/
+
+# Local application state and session logs
+data/app-support/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS and diagnostic files
+.DS_Store
+*.log
