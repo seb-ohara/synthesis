@@ -1489,7 +1489,7 @@ function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5.5 8.5 10 4l4.5 4.5"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1498,6 +1498,11 @@ function initChatPane(ws, tab) {
   const form = tab.body.querySelector('form');
   const input = form.querySelector('textarea');
   const button = form.querySelector('.chat-send');
+  form.querySelector('.chat-git').addEventListener('click', event => {
+    const trigger = event.currentTarget;
+    if (!$('#git-panel').hidden && gitAnchor === trigger) setFsCollapsed(true);
+    else { gitAnchor = trigger; setFsCollapsed(false); }
+  });
   const modelSelect = form.querySelector('.chat-model-trigger');
   const modelLabel = form.querySelector('.chat-model-label');
   const modelMenu = form.querySelector('.chat-model-menu');
@@ -3033,26 +3038,38 @@ function setWsCollapsed(collapsed) {
   });
 }
 
+let gitAnchor = null;
 function updateFilesToggle() {
-  const button = $('#files-toggle-btn');
   const open = !$('#git-panel').hidden;
-  button.dataset.tip = open ? 'Close Git menu' : 'Open Git menu';
-  button.setAttribute('aria-label', button.dataset.tip);
-  button.setAttribute('aria-expanded', String(open));
+  document.querySelectorAll('.chat-git').forEach(button => {
+    const expanded = open && button === gitAnchor;
+    button.setAttribute('aria-label', expanded ? 'Close Git menu' : 'Open Git menu');
+    button.setAttribute('aria-expanded', String(expanded));
+  });
+}
+function positionGitPanel() {
+  const panel = $('#git-panel');
+  if (panel.hidden || !gitAnchor?.isConnected) return;
+  const rect = gitAnchor.getBoundingClientRect();
+  const margin = 8;
+  panel.style.maxHeight = `${Math.max(80, Math.min(480, rect.top - margin * 2))}px`;
+  panel.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - panel.offsetWidth - margin))}px`;
+  panel.style.top = `${Math.max(margin, rect.top - panel.offsetHeight - margin)}px`;
 }
 function setFsCollapsed(collapsed) {
   els.app.classList.add('fs-collapsed');
   $('#git-panel').hidden = collapsed;
   updateFilesToggle();
-  if (!collapsed) refreshGitPanel();
+  if (!collapsed) { positionGitPanel(); refreshGitPanel().then(positionGitPanel); }
   requestBrowserSync();
 }
 document.addEventListener('pointerdown', event => {
-  if (!$('#git-panel').hidden && !event.target.closest('#git-panel, #files-toggle-btn')) setFsCollapsed(true);
+  if (!$('#git-panel').hidden && !event.target.closest('#git-panel, .chat-git')) setFsCollapsed(true);
 });
 $('#git-panel').addEventListener('keydown', event => {
-  if (event.key === 'Escape') { event.stopPropagation(); setFsCollapsed(true); $('#files-toggle-btn').focus(); }
+  if (event.key === 'Escape') { event.stopPropagation(); setFsCollapsed(true); gitAnchor?.focus(); }
 });
+window.addEventListener('resize', positionGitPanel);
 
 /* ---------------- panel resize ---------------- */
 
@@ -3559,8 +3576,6 @@ if (els.filesFilter) {
 }
 if (els.filesHidden) els.filesHidden.addEventListener('click', toggleHiddenFiles);
 if (els.filesViewBtn) els.filesViewBtn.addEventListener('click', toggleFilesView);
-$('#files-toggle-btn').addEventListener('click', () =>
-  setFsCollapsed(!$('#git-panel').hidden));
 $('#ws-collapse').addEventListener('click', () => setWsCollapsed(true));
 $('#ws-expand').addEventListener('click', () => setWsCollapsed(false));
 
@@ -3604,7 +3619,7 @@ els.filesBody.addEventListener('contextmenu', (e) => {
 window.addEventListener('keydown', (e) => {
   if (recordingShortcutFor && handleShortcutRecording(e)) return;
   if (e.key === 'Escape') {
-    if (!$('#git-panel').hidden) { setFsCollapsed(true); $('#files-toggle-btn').focus(); return; }
+    if (!$('#git-panel').hidden) { setFsCollapsed(true); gitAnchor?.focus(); return; }
     if (!$('#history-backdrop').classList.contains('hidden')) {
       closeSavedHistory();
       return;

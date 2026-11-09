@@ -1,0 +1,41 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { _electron } = require('playwright');
+const ROOT = path.resolve(__dirname, '../..');
+
+test('composer grows and its Git menu follows the active pane', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-composer-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow();
+  await page.waitForSelector('.ws-view.active .chat-body');
+  const input = page.locator('.ws-view.active .chat-composer textarea').first();
+  const initial = await input.evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(initial >= 20 && initial < 30, `single-line height was ${initial}`);
+  await input.fill('One line\nTwo lines\nThree lines');
+  const grown = await input.evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(grown > initial + 30, `multiline height ${grown} did not grow`);
+  await input.fill('');
+  assert.ok(Math.abs(await input.evaluate(el => el.getBoundingClientRect().height) - initial) < 1);
+  assert.equal(await page.locator('#files-toggle-btn').count(), 0);
+  await page.locator('.ws-view.active .pane-btn[data-action="splitRight"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
+  const git = page.locator('.ws-view.active .tile').last().locator('.chat-git');
+  await git.click();
+  assert.equal(await git.getAttribute('aria-expanded'), 'true');
+  const dimensions = await page.evaluate(() => {
+    const a = document.querySelector('.ws-view.active .tile.active .chat-git').getBoundingClientRect();
+    const p = document.querySelector('#git-panel').getBoundingClientRect();
+    return { anchorX: a.left, anchorY: a.top, panelX: p.left, panelBottom: p.bottom, width: innerWidth, panelRight: p.right };
+  });
+  assert.ok(Math.abs(dimensions.panelX - dimensions.anchorX) < 2 || dimensions.panelRight <= dimensions.width - 7);
+  assert.ok(dimensions.panelBottom <= dimensions.anchorY);
+  await page.keyboard.press('Escape');
+  assert.equal(await git.getAttribute('aria-expanded'), 'false');
+  assert.equal(await git.evaluate(el => document.activeElement === el), true);
+});
