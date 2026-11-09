@@ -12,6 +12,7 @@ const { ID_RE } = require('./lib/state-schema');
 const { PathGuard } = require('./lib/path-guard');
 const { createBrowserManager } = require('./lib/browser-views');
 const gitControls = require('./lib/git-controls');
+const { generateGitCommitMessage } = require('./lib/git-commit-message');
 
 const SHELL = process.env.SHELL || '/bin/zsh';
 const MAX_HISTORY_BYTES = 10 * 1024 * 1024;
@@ -104,6 +105,16 @@ ipcMain.handle('git:review', async (_event, { cwd, scope, ref }) => {
 ipcMain.handle('git:action', async (_event, { cwd, action, data }) => {
   const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
   try { return { ok: true, output: await gitControls.action(dir, action, data) }; } catch (error) { return { ok: false, committed: error.committed === true, error: (error.stderr || error.stdout || error.message || 'Git action failed.').trim().slice(0, 2000) }; }
+});
+ipcMain.handle('git:openFinder', async (_event, cwd) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
+  try { if (!(await fsp.stat(dir)).isDirectory()) throw new Error('Project folder is unavailable.'); const error = await shell.openPath(dir); return error ? { ok: false, error } : { ok: true }; }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('git:commitAuto', async (_event, { cwd, action, model, expectedBranch }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
+  try { return { ok: true, ...(await gitControls.autoCommit(dir, action, changes => generateGitCommitMessage(dir, model, changes), expectedBranch)) }; }
+  catch (error) { return { ok: false, committed: error.committed === true, error: (error.stderr || error.stdout || error.message || 'Git action failed.').trim().slice(0, 2000) }; }
 });
 ipcMain.handle('git:github', async (_event, { cwd, action }) => {
   const dir = pathGuard.resolveAllowed(cwd); if (!dir || !['repo', 'pr', 'createPr'].includes(action)) return { ok: false, error: 'Project folder is unavailable.' };

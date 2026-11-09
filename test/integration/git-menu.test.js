@@ -7,6 +7,20 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { _electron } = require('playwright');
 const ROOT = path.resolve(__dirname, '../..');
+async function stubCommitGeneration(app) {
+  await app.evaluate(({ ipcMain }, root) => {
+    const git = process.getBuiltinModule('module').createRequire(root + '/main.js')('./lib/git-controls');
+    globalThis.__gitShortcutCalls = [];
+    for (const channel of ['git:openFinder', 'git:github']) ipcMain.removeHandler(channel);
+    ipcMain.handle('git:openFinder', (_event, cwd) => { globalThis.__gitShortcutCalls.push({ action: 'finder', cwd }); return { ok: true }; });
+    ipcMain.handle('git:github', (_event, data) => { globalThis.__gitShortcutCalls.push(data); return { ok: true }; });
+    ipcMain.removeHandler('git:commitAuto');
+    ipcMain.handle('git:commitAuto', async (_event, { cwd, action, expectedBranch }) => {
+      try { return { ok: true, ...(await git.autoCommit(cwd, action, async () => 'Update project files', expectedBranch)) }; }
+      catch (error) { return { ok: false, error: error.message, committed: error.committed === true }; }
+    });
+  }, ROOT);
+} 
 
 test('compact Git menu reviews the active project changes and commits', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-git-menu-'));
@@ -19,31 +33,54 @@ test('compact Git menu reviews the active project changes and commits', async t 
   fs.writeFileSync(path.join(dir, 'test.txt'), 'after\n');
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  await stubCommitGeneration(app);
   t.after(async () => { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(userData, { recursive: true, force: true }); fs.rmSync(remote, { recursive: true, force: true }); });
   const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
   await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Test project', cwd }); setActive(ws.id); }, dir);
   await page.locator('.ws-view.active .chat-git').click();
   await page.waitForFunction(() => !document.querySelector('#git-repo').hidden);
-  assert.equal(await page.locator('#git-repo > details').count(), 3);
+  assert.equal(await page.locator('#git-repo > details.git-group').count(), 2);
+  assert.equal(await page.locator('.git-remote-container').isVisible(), false);
+  const layout = await page.evaluate(() => {
+    const box = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+    return { shortcuts: box('.git-shortcuts'), branch: box('.git-branch-group > summary'), action: box('.git-action-split'), toggle: box('#git-action-toggle'), arrow: box('#git-action-toggle svg'), branchArrow: box('.git-branch-group .git-chevron svg') };
+  });
+  assert.ok(layout.shortcuts.y < layout.branch.y, JSON.stringify(layout));
+  assert.ok(Math.abs((layout.branchArrow.x + layout.branchArrow.width / 2) - (layout.arrow.x + layout.arrow.width / 2)) < 1, JSON.stringify(layout));
+  assert.ok(Math.abs(layout.branch.width - layout.action.width) < 1 && Math.abs(layout.branch.height - layout.action.height) < 1, JSON.stringify(layout));
+  assert.ok(Math.abs((layout.toggle.x + layout.toggle.width / 2) - (layout.arrow.x + layout.arrow.width / 2)) < 1 && Math.abs((layout.toggle.y + layout.toggle.height / 2) - (layout.arrow.y + layout.arrow.height / 2)) < 1, JSON.stringify(layout));
+  await page.locator('#git-action-toggle').click();
+  assert.deepEqual(await page.locator('#git-action-options [role=menuitem]').allTextContents(), ['Commit', 'Push', 'Create PR']);
+  await page.locator('#git-action-toggle').click();
   assert.match(await page.locator('#git-count').innerText(), /\+1[\s\S]*−1/);
   const appearance = await page.evaluate(() => ({ added: getComputedStyle(document.querySelector('.git-count-added')).color, deleted: getComputedStyle(document.querySelector('.git-count-deleted')).color, gap: getComputedStyle(document.querySelector('.git-count')).gap, menu: getComputedStyle(document.querySelector('#git-panel')).backgroundColor, composer: getComputedStyle(document.querySelector('.ws-view.active .chat-composer')).backgroundColor }));
   assert.equal(appearance.added, 'rgb(135, 204, 152)'); assert.equal(appearance.deleted, 'rgb(230, 148, 148)');
   assert.equal(appearance.gap, '9px'); assert.equal(appearance.menu, appearance.composer);
-  await page.locator('#git-repo > details').nth(2).locator('summary').click();
+  await page.locator('#git-repo > details.git-group').nth(1).locator('summary').click();
   await page.locator('#git-review-open').click();
   await page.waitForFunction(() => document.querySelector('#git-review-output').textContent.includes('+after'));
   await page.locator('#git-review-scope').selectOption('commit');
   await page.waitForFunction(() => document.querySelector('#git-review-output').textContent.includes('Initial commit'));
   await page.locator('#git-review-close').click();
   assert.equal(await page.locator('#git-menu-content').isVisible(), true);
-  await page.locator('#git-repo > details').nth(1).locator('summary').click();
-  await page.locator('#git-message').fill('Commit via menu');
+  assert.equal(await page.locator('#git-message').count(), 0);
+  assert.equal(await page.locator('#git-open-finder').isVisible(), true);
+  assert.equal(await page.locator('#git-open-repository').isVisible(), true);
+  await page.locator('#git-open-finder').click();
+  await page.locator('#git-open-repository').click();
+  assert.deepEqual(await app.evaluate(() => globalThis.__gitShortcutCalls), [{ action: 'finder', cwd: dir }, { action: 'repo', cwd: dir }]);
+  await page.locator('#git-action-toggle').click();
   await page.locator('#git-commit').click();
   await page.waitForFunction(() => document.querySelector('#git-feedback').textContent.includes('No staged changes'));
   await page.locator('#git-stage-all').click();
   await page.waitForFunction(() => !document.querySelector('#git-unstage-all').disabled);
   await page.locator('#git-commit-push').click();
-  await page.waitForFunction(() => document.querySelector('#git-message').value === '' && !document.querySelector('#git-commit-push').disabled);
+  await page.waitForFunction(() => document.querySelector('#git-default-dialog').open);
+  await page.locator('#git-dialog-abort').click();
+  assert.equal(execFileSync('git', ['log', '-1', '--format=%s'], { cwd: dir, encoding: 'utf8' }).trim(), 'Initial commit');
+  await page.locator('#git-commit-push').click();
+  await page.locator('#git-dialog-current').click();
+  await page.waitForFunction(() => document.querySelector('#git-feedback').textContent.includes('Committed: Update project files'));
   const branch = execFileSync('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8' }).trim();
   const local = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
   const pushed = execFileSync('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/' + branch], { encoding: 'utf8' }).trim();
@@ -59,6 +96,7 @@ test('repository connection is visible and the menu remains usable in a short sp
   for (let i = 0; i < 35; i++) fs.writeFileSync(path.join(dir, `file-${i}.txt`), 'test\n');
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  await stubCommitGeneration(app);
   t.after(async () => { await app.close(); for (const folder of [dir, remote, userData]) fs.rmSync(folder, { recursive: true, force: true }); });
   const page = await app.firstWindow();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(980, 600));
@@ -68,14 +106,26 @@ test('repository connection is visible and the menu remains usable in a short sp
   await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
   await page.locator('.ws-view.active .tile').first().locator('.chat-git').click();
   await page.waitForFunction(() => !document.querySelector('#git-repo').hidden);
-  assert.equal(await page.locator('#git-remote-summary').innerText(), 'Connect repository');
-  await page.locator('#git-remote-summary').click();
+  assert.match(await page.locator('#git-remote-open').innerText(), /^Connect repository/);
+  await page.locator('#git-remote-open').click();
+  await page.locator('#git-remote-url').press('Escape');
+  assert.equal(await page.locator('#git-menu-content').isVisible(), true);
+  await page.locator('#git-remote-open').click();
+  await page.locator('#git-connect-back').click();
+  assert.equal(await page.locator('#git-menu-content').isVisible(), true);
+  await page.locator('#git-remote-open').click();
+  await page.locator('#git-remote-url').fill('-invalid');
+  await page.locator('#git-remote-save').click();
+  await page.waitForFunction(() => document.querySelector('#git-connect-feedback').textContent.length > 0);
+  assert.equal(await page.locator('#git-connect-view').isVisible(), true);
+  const bounds = await page.locator('#git-panel').boundingBox();
+  assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 600, JSON.stringify(bounds));
   await page.locator('#git-remote-url').fill(remote);
   await page.locator('#git-remote-save').click();
-  await page.waitForFunction(() => document.querySelector('#git-remote-summary').textContent === 'Manage repository connection');
+  await page.waitForFunction(() => document.querySelector('.git-remote-container').hidden);
   const connected = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8' }).trim();
   assert.equal(connected, remote);
-  await page.locator('#git-repo > details').nth(2).locator('summary').click();
+  await page.locator('#git-repo > details.git-group').nth(1).locator('summary').click();
   const lastButton = page.locator('#git-unstage-all');
   await lastButton.scrollIntoViewIfNeeded();
   const geometry = await page.evaluate(() => {
@@ -89,28 +139,53 @@ test('repository connection is visible and the menu remains usable in a short sp
   assert.ok(geometry.controlTop >= geometry.top && geometry.controlBottom <= geometry.bottom, JSON.stringify(geometry));
 });
 
-test('a new project folder offers cloning and opens the cloned repository', async t => {
-  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-clone-ui-source-'));
-  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-clone-ui-dest-'));
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-clone-ui-data-'));
-  const run = (...args) => execFileSync('git', args, { cwd: source, stdio: 'ignore' });
-  run('init'); run('config', 'user.name', 'Test'); run('config', 'user.email', 'test@example.invalid');
-  fs.writeFileSync(path.join(source, 'example.txt'), 'clone me\n'); run('add', 'example.txt'); run('commit', '-m', 'Initial');
+test('default branch prompt creates a feature branch before commit and push', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-feature-ui-'));
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-feature-remote-'));
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-feature-data-'));
+  execFileSync('git', ['init', '--bare', remote], { stdio: 'ignore' });
+  const run = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  run('init', '-b', 'main'); run('config', 'user.name', 'Test'); run('config', 'user.email', 'test@example.invalid'); run('remote', 'add', 'origin', remote);
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'first\n'); run('add', 'file.txt'); run('commit', '-m', 'Initial');
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'second\n'); run('add', 'file.txt');
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
-  t.after(async () => { await app.close(); for (const folder of [source, dest, userData]) fs.rmSync(folder, { recursive: true, force: true }); });
+  await stubCommitGeneration(app);
+  t.after(async () => { await app.close(); for (const folder of [dir, remote, userData]) fs.rmSync(folder, { recursive: true, force: true }); });
   const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
-  await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Empty folder', cwd }); setActive(ws.id); }, dest);
+  await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Project', cwd }); setActive(ws.id); }, dir);
   await page.locator('.ws-view.active .chat-git').click();
-  await page.waitForFunction(() => !document.querySelector('#git-clone-details').hidden);
-  const setup = await page.evaluate(() => ({ padding: getComputedStyle(document.querySelector('#git-empty')).padding, text: document.querySelector('#git-empty').textContent, placeholder: document.querySelector('#git-clone-url').getAttribute('placeholder') }));
-  assert.equal(setup.padding, '10px 12px 12px');
-  assert.doesNotMatch(setup.text, /Clones into|scratch\//);
-  assert.equal(setup.placeholder, null);
-  await page.locator('#git-clone-details summary').click();
-  await page.locator('#git-clone-url').fill(source);
-  await page.locator('#git-clone').click();
   await page.waitForFunction(() => !document.querySelector('#git-repo').hidden);
-  assert.equal(fs.readFileSync(path.join(dest, 'example.txt'), 'utf8'), 'clone me\n');
-  assert.equal(await page.locator('#git-remote-summary').innerText(), 'Manage repository connection');
+  await page.locator('#git-commit-push').click();
+  await page.waitForFunction(() => document.querySelector('#git-default-dialog').open);
+  await page.locator('#git-dialog-feature').click();
+  await page.locator('#git-feature-name').fill('feature/test');
+  await page.locator('#git-dialog-feature').click();
+  await page.waitForFunction(() => !document.querySelector('#git-default-dialog').open && document.querySelector('#git-feedback').textContent.includes('Committed: Update project files'));
+  assert.equal(run('branch', '--show-current'), 'feature/test');
+  assert.equal(run('log', '-1', '--format=%s'), 'Update project files');
+  assert.equal(run('log', '-1', '--format=%s', 'main'), 'Initial');
+  assert.equal(execFileSync('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/feature/test'], { encoding: 'utf8' }).trim(), run('rev-parse', 'HEAD'));
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'third\n'); run('add', 'file.txt');
+  await page.locator('#git-commit-push').click();
+  await page.waitForFunction(() => document.querySelector('#git-feedback').textContent.includes('Committed: Update project files') && !document.querySelector('#git-commit-push').disabled);
+  assert.equal(await page.locator('#git-default-dialog').evaluate(dialog => dialog.open), false);
+  assert.equal(run('show', 'HEAD:file.txt'), 'third');
+});
+
+
+test('a project without a repository can initialize Git', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-init-ui-'));
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-init-data-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); for (const folder of [dir, userData]) fs.rmSync(folder, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  await page.evaluate(cwd => { const ws = createWorkspace({ name: 'New project', cwd }); setActive(ws.id); }, dir);
+  await page.locator('.ws-view.active .chat-git').click();
+  assert.equal(await page.locator('#git-clone-details').count(), 0);
+  await page.locator('#git-init').click();
+  await page.waitForFunction(() => !document.querySelector('#git-repo').hidden);
+  assert.equal(fs.existsSync(path.join(dir, '.git')), true);
+  assert.match(await page.locator('#git-remote-open').innerText(), /^Connect repository/);
 });

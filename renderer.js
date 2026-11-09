@@ -1566,6 +1566,7 @@ function initChatPane(ws, tab) {
   const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
   const maxImageBytes = 10 * 1024 * 1024;
   let currentModel = '', changing = false;
+  tab.getGitModel = () => { const model = models.find(item => modelKey(item) === currentModel); return model ? { provider: model.provider, id: model.id } : null; };
   function renderAttachments() {
     attachmentList.replaceChildren(); attachmentList.hidden = !attachments.length && !pastedImages.length && !pendingImages;
     attachments.forEach(path => { const chip = document.createElement('span'); chip.className = 'chat-attachment'; const name = document.createElement('span'); name.textContent = path.split('/').filter(Boolean).pop() || path; name.title = path; const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', 'Remove ' + name.textContent); remove.addEventListener('click', () => { attachments = attachments.filter(item => item !== path); renderAttachments(); update(); }); chip.append(name, remove); attachmentList.append(chip); });
@@ -2984,18 +2985,17 @@ async function refreshGitPanel() {
   if ($('#git-panel').hidden) return;
   const ws = activeGitWorkspace(), seq = ++gitRefreshSequence;
   const repo = $('#git-repo'), empty = $('#git-empty'), init = $('#git-init');
-  init.hidden = true; $('#git-clone-details').hidden = true;
+  init.hidden = true;
   if (!ws) { repo.hidden = true; empty.hidden = false; $('#git-empty-message').textContent = 'Open a project to use Git.'; return; }
   const cwd = activeGitCwd();
   const result = await window.mux.git.status(cwd).catch(() => ({ ok: false }));
   if (seq !== gitRefreshSequence) return;
-  repo.hidden = !result.ok; empty.hidden = !!result.ok;
-  if (!result.ok) { $('#git-empty-message').textContent = result.error || 'This folder is not a Git repository.'; init.hidden = !result.canInit; $('#git-clone-details').hidden = !result.canInit; if (gitStatusCwd !== cwd) $('#git-clone-url').value = ''; gitStatusCwd = cwd; return; }
+  repo.hidden = !result.ok; empty.hidden = !!result.ok; $('#git-open-repository').hidden = !result.ok;
+  if (!result.ok) { $('#git-empty-message').textContent = result.error || 'This folder is not a Git repository.'; init.hidden = !result.canInit; gitStatusCwd = cwd; return; }
   const remoteInput = $('#git-remote-url'), remote = result.remote || '';
   if (gitStatusCwd !== cwd || remoteInput.value === (remoteInput.dataset.original || '')) remoteInput.value = remote;
   remoteInput.dataset.original = remote; gitStatusCwd = cwd;
-  $('#git-remote-summary').textContent = remote ? 'Manage repository connection' : 'Connect repository';
-  $('#git-remote-save').textContent = remote ? 'Update repository' : 'Connect repository';
+  $('.git-remote-container').hidden = !!remote;
   $('#git-current-branch').textContent = result.branch;
   const branches = $('#git-branches'); branches.replaceChildren();
   for (const branch of result.branches) branches.add(new Option(branch, branch));
@@ -3024,32 +3024,131 @@ async function refreshGitPanel() {
 async function runGitAction(action, data = {}) {
   const ws = activeGitWorkspace(), cwd = activeGitCwd(); if (!ws || !cwd) return;
   const feedback = $('#git-feedback'); feedback.textContent = 'Working…';
-  const commitButtons = [$('#git-commit'), $('#git-commit-push')];
-  const committing = action === 'commit' || action === 'commitAndPush';
-  const repositoryButtons = [$('#git-init'), $('#git-clone'), $('#git-remote-save')];
-  const changingRepository = ['init', 'clone', 'connectRemote'].includes(action);
+  const repositoryButtons = [$('#git-init'), $('#git-remote-save')];
+  const changingRepository = ['init', 'connectRemote'].includes(action);
   if (changingRepository) repositoryButtons.forEach(button => { button.disabled = true; });
-  if (committing) commitButtons.forEach(button => { button.disabled = true; });
   const result = await window.mux.git.action(cwd, action, data).catch(error => ({ ok: false, error: error.message }));
-  if (committing) commitButtons.forEach(button => { button.disabled = false; });
   if (changingRepository) repositoryButtons.forEach(button => { button.disabled = false; });
-  feedback.textContent = result.ok ? (action === 'connectRemote' ? 'Repository connected.' : action === 'clone' ? 'Repository cloned.' : result.output || 'Done.') : result.committed ? `Commit created, but push failed: ${result.error || 'Git push failed.'}` : (result.error || 'Git action failed.');
-  if ((result.ok && committing) || result.committed) $('#git-message').value = '';
+  feedback.textContent = result.ok ? (action === 'connectRemote' ? 'Repository connected.' : result.output || 'Done.') : result.committed ? `Commit created, but push failed: ${result.error || 'Git push failed.'}` : (result.error || 'Git action failed.');
   if (activeGitCwd() === cwd) refreshGitPanel();
+  return result;
 }
 $('#git-refresh').addEventListener('click', refreshGitPanel);
 $('#git-init').addEventListener('click', () => runGitAction('init'));
-$('#git-clone').addEventListener('click', () => runGitAction('clone', { url: $('#git-clone-url').value }));
-$('#git-remote-save').addEventListener('click', () => runGitAction('connectRemote', { url: $('#git-remote-url').value }));
+let gitConnectSequence = 0;
+function closeGitConnect(restoreFocus = true) {
+  ++gitConnectSequence;
+  $('#git-connect-view').hidden = true; $('#git-menu-content').hidden = false;
+  $('#git-connect-feedback').textContent = ''; $('#git-remote-save').disabled = false;
+  requestAnimationFrame(positionGitPanel);
+  if (restoreFocus && !$('.git-remote-container').hidden) $('#git-remote-open').focus();
+}
+$('#git-remote-open').addEventListener('click', () => {
+  ++gitConnectSequence;
+  $('#git-menu-content').hidden = true; $('#git-connect-view').hidden = false;
+  $('#git-connect-feedback').textContent = '';
+  requestAnimationFrame(() => { positionGitPanel(); $('#git-remote-url').focus(); });
+});
+$('#git-connect-back').addEventListener('click', () => closeGitConnect());
+$('#git-connect-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const cwd = activeGitCwd(), seq = gitConnectSequence, button = $('#git-remote-save');
+  if (!cwd || button.disabled) return;
+  button.disabled = true; $('#git-connect-feedback').textContent = '';
+  const result = await window.mux.git.action(cwd, 'connectRemote', { url: $('#git-remote-url').value }).catch(error => ({ ok: false, error: error.message }));
+  if (seq !== gitConnectSequence || $('#git-panel').hidden) return;
+  if (activeGitCwd() !== cwd) { closeGitConnect(false); refreshGitPanel(); return; }
+  button.disabled = false;
+  if (!result.ok) { $('#git-connect-feedback').textContent = result.error || 'Could not connect repository.'; requestAnimationFrame(positionGitPanel); return; }
+  closeGitConnect(false); $('#git-feedback').textContent = 'Repository connected.';
+  await refreshGitPanel(); positionGitPanel();
+});
 $('#git-branches').addEventListener('change', event => runGitAction('switch', { branch: event.target.value }));
 $('#git-new-branch').addEventListener('click', () => { const name = window.prompt('New branch name'); if (name?.trim()) runGitAction('createBranch', { branch: name.trim() }); });
-$('#git-commit').addEventListener('click', () => runGitAction('commit', { message: $('#git-message').value }));
-$('#git-commit-push').addEventListener('click', () => runGitAction('commitAndPush', { message: $('#git-message').value }));
+function setGitActionsOpen(open) {
+  $('#git-action-options').hidden = !open;
+  $('#git-action-toggle').setAttribute('aria-expanded', String(open));
+  requestAnimationFrame(positionGitPanel);
+}
+$('#git-action-toggle').addEventListener('click', () => setGitActionsOpen($('#git-action-options').hidden));
+let pendingGitCommit = null, gitCommitChecking = false;
+async function runAutoCommit(cwd, action, model, expectedBranch) {
+  if (activeGitCwd() !== cwd) { $('#git-feedback').textContent = 'The active repository changed. Please try again.'; return; }
+  const buttons = [$('#git-commit'), $('#git-commit-push'), $('#git-action-toggle')];
+  buttons.forEach(button => { button.disabled = true; });
+  $('#git-feedback').textContent = 'Writing commit message…';
+  try {
+    const result = await window.mux.git.commitAuto(cwd, action, model, expectedBranch);
+    if (activeGitCwd() !== cwd) return;
+    $('#git-feedback').textContent = result.ok ? `Committed: ${result.message}${action === 'commitAndPush' ? ' · pushed' : ''}` : result.committed ? `Commit created, but push failed: ${result.error || 'Git push failed.'}` : result.error || 'Git action failed.';
+    refreshGitPanel();
+  } catch (error) { if (activeGitCwd() === cwd) $('#git-feedback').textContent = error.message || 'Git action failed.'; }
+  finally { buttons.forEach(button => { button.disabled = false; }); }
+}
+async function requestGitCommit(action) {
+  if (gitCommitChecking) return;
+  gitCommitChecking = true;
+  try {
+    setGitActionsOpen(false);
+    const cwd = activeGitCwd();
+    if (!cwd) return;
+    const tab = activeWs()?.panes[activeWs().activePaneIdx]?.activeTab;
+    const model = tab?.getGitModel?.() || null;
+    $('#git-feedback').textContent = 'Checking changes…';
+    const status = await window.mux.git.status(cwd).catch(error => ({ ok: false, error: error.message }));
+    if (activeGitCwd() !== cwd) return;
+    if (!status.ok) { $('#git-feedback').textContent = status.error || 'Could not read Git status.'; return; }
+    if (!status.changes.some(change => change.staged)) { $('#git-feedback').textContent = 'No staged changes. Stage files in Changes before committing.'; return; }
+    if (action === 'commit' || !status.defaultBranch || status.branch !== status.defaultBranch) { await runAutoCommit(cwd, action, model, status.branch); return; }
+    pendingGitCommit = { cwd, branch: status.branch, model };
+    $('#git-default-description').textContent = `This will commit and push staged changes on “${status.branch}”. You can continue here or create a feature branch.`;
+    $('#git-dialog-current').textContent = `Commit and push to ${status.branch}`;
+    $('#git-feature-label').hidden = true; $('#git-feature-name').value = ''; $('#git-dialog-error').hidden = true;
+    $('#git-feedback').textContent = '';
+    $('#git-default-dialog').showModal();
+    $('#git-dialog-abort').focus();
+  } finally { gitCommitChecking = false; }
+}
+$('#git-commit').addEventListener('click', () => requestGitCommit('commit'));
+$('#git-commit-push').addEventListener('click', () => requestGitCommit('commitAndPush'));
+$('#git-open-finder').addEventListener('click', async () => {
+  const cwd = activeGitCwd(); if (!cwd) return;
+  const result = await window.mux.git.openFinder(cwd).catch(error => ({ ok: false, error: error.message }));
+  if (!result.ok && activeGitCwd() === cwd) $('#git-feedback').textContent = result.error || 'Could not open Finder.';
+});
+function closeGitDefaultDialog() { $('#git-default-dialog').close(); pendingGitCommit = null; }
+$('#git-dialog-abort').addEventListener('click', closeGitDefaultDialog);
+$('#git-dialog-close').addEventListener('click', closeGitDefaultDialog);
+$('#git-default-dialog').addEventListener('cancel', event => { if ($('#git-dialog-current').disabled) event.preventDefault(); else pendingGitCommit = null; });
+async function continueGitCommit(feature) {
+  const pending = pendingGitCommit;
+  if (!pending) return;
+  if (feature && $('#git-feature-label').hidden) { $('#git-feature-label').hidden = false; $('#git-feature-name').focus(); return; }
+  const name = $('#git-feature-name').value.trim();
+  if (feature && !name) { $('#git-dialog-error').textContent = 'Enter a feature branch name.'; $('#git-dialog-error').hidden = false; return; }
+  const buttons = ['#git-dialog-current', '#git-dialog-feature', '#git-dialog-abort', '#git-dialog-close'].map(selector => $(selector));
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const current = await window.mux.git.status(pending.cwd);
+    if (!current.ok || activeGitCwd() !== pending.cwd || current.branch !== pending.branch) throw new Error('The active repository or branch changed. Please try again.');
+    if (feature) {
+      const result = await window.mux.git.action(pending.cwd, 'createBranch', { branch: name });
+      if (!result.ok) throw new Error(result.error || 'Could not create the branch.');
+    }
+    closeGitDefaultDialog();
+    if (activeGitCwd() !== pending.cwd) { $('#git-feedback').textContent = 'The active repository changed. Please try again.'; return; }
+    await runAutoCommit(pending.cwd, 'commitAndPush', pending.model, feature ? name : pending.branch);
+  } catch (error) { $('#git-dialog-error').textContent = error.message; $('#git-dialog-error').hidden = false; }
+  finally { buttons.forEach(button => { button.disabled = false; }); }
+}
+$('#git-dialog-current').addEventListener('click', () => continueGitCommit(false));
+$('#git-dialog-feature').addEventListener('click', () => continueGitCommit(true));
 $('#git-stage-all').addEventListener('click', () => runGitAction('stage', { paths: gitVisibleChanges.filter(change => change.unstaged).map(change => change.path) }));
 $('#git-unstage-all').addEventListener('click', () => runGitAction('unstage', { paths: gitVisibleChanges.filter(change => change.staged).map(change => change.path) }));
 $('#git-panel').addEventListener('click', async event => {
-  const git = event.target.closest('[data-git-action]'); if (git) { runGitAction(git.dataset.gitAction); return; }
+  const git = event.target.closest('[data-git-action]'); if (git) { if (git.closest('#git-action-options')) setGitActionsOpen(false); runGitAction(git.dataset.gitAction); return; }
   const gh = event.target.closest('[data-github-action]'); if (!gh || !activeGitWorkspace()) return;
+  if (gh.closest('#git-action-options')) setGitActionsOpen(false);
   const result = await window.mux.git.github(activeGitCwd(), gh.dataset.githubAction).catch(error => ({ ok: false, error: error.message }));
   $('#git-feedback').textContent = result.ok ? 'Opened GitHub.' : result.error;
 });
@@ -3138,16 +3237,16 @@ function positionGitPanel() {
 function setFsCollapsed(collapsed) {
   els.app.classList.add('fs-collapsed');
   $('#git-panel').hidden = collapsed;
-  if (collapsed) { ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); document.querySelectorAll('#git-repo details, #git-clone-details').forEach(group => { group.open = false; }); }
+  if (collapsed) { closeGitConnect(false); setGitActionsOpen(false); ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); document.querySelectorAll('#git-repo details').forEach(group => { group.open = false; }); }
   updateFilesToggle();
   if (!collapsed) { positionGitPanel(); refreshGitPanel().then(positionGitPanel); }
   requestBrowserSync();
 }
 document.addEventListener('pointerdown', event => {
-  if (!$('#git-panel').hidden && !event.target.closest('#git-panel, .chat-git')) setFsCollapsed(true);
+  if (!$('#git-panel').hidden && !event.target.closest('#git-panel, .chat-git, #git-default-dialog')) setFsCollapsed(true);
 });
 $('#git-panel').addEventListener('keydown', event => {
-  if (event.key === 'Escape') { event.stopPropagation(); setFsCollapsed(true); gitAnchor?.focus(); }
+  if (event.key === 'Escape') { event.stopPropagation(); if (!$('#git-connect-view').hidden) { closeGitConnect(); } else if (!$('#git-action-options').hidden) { setGitActionsOpen(false); $('#git-action-toggle').focus(); } else { setFsCollapsed(true); gitAnchor?.focus(); } }
 });
 window.addEventListener('resize', positionGitPanel);
 let gitPositionPending = false;
@@ -3705,6 +3804,7 @@ els.filesBody.addEventListener('contextmenu', (e) => {
 window.addEventListener('keydown', (e) => {
   if (recordingShortcutFor && handleShortcutRecording(e)) return;
   if (e.key === 'Escape') {
+    if ($('#git-default-dialog').open) return;
     if (!$('#git-panel').hidden) { setFsCollapsed(true); gitAnchor?.focus(); return; }
     if (!$('#history-backdrop').classList.contains('hidden')) {
       closeSavedHistory();

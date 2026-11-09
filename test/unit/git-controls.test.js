@@ -132,3 +132,41 @@ test('commit explains when no files are staged', async t => {
   await assert.rejects(git.action(dir, 'commit', { message: 'Initial commit' }), /No staged changes.*Stage files/);
   assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }), /\?\? file.txt/);
 });
+
+test('automatic commit describes staged content and refuses changes made during generation', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-auto-commit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  run('init', '-b', 'main'); run('config', 'user.name', 'Test'); run('config', 'user.email', 'test@example.invalid');
+  fs.writeFileSync(path.join(dir, 'report.txt'), 'first\n'); run('add', 'report.txt');
+  const result = await git.autoCommit(dir, 'commit', async changes => {
+    assert.match(changes.patch, /\+first/);
+    assert.match(changes.summary, /report\.txt/);
+    return 'Add report';
+  }, 'main');
+  assert.equal(result.message, 'Add report');
+  assert.equal(run('log', '-1', '--format=%s'), 'Add report');
+  fs.writeFileSync(path.join(dir, 'report.txt'), 'second\n'); run('add', 'report.txt');
+  await assert.rejects(git.autoCommit(dir, 'commit', async () => {
+    fs.writeFileSync(path.join(dir, 'report.txt'), 'third\n'); run('add', 'report.txt');
+    return 'Update report';
+  }, 'main'), /staged changes or branch changed/);
+  assert.equal(run('log', '-1', '--format=%s'), 'Add report');
+  await assert.rejects(git.autoCommit(dir, 'commit', async () => null, 'main'), /Could not generate a commit message/);
+  await assert.rejects(git.autoCommit(dir, 'commit', async () => 'Unexpected', 'other'), /branch changed/);
+});
+
+test('commit message generator passes staged diff and selected model to the agent', async t => {
+  const { generateGitCommitMessage } = require('../../lib/git-commit-message');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-message-agent-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const executable = path.join(dir, 'fake-pi');
+  fs.writeFileSync(executable, `#!/usr/bin/env node\nlet input=''; process.stdin.setEncoding('utf8'); process.stdin.on('data', c => input += c); process.stdin.on('end', () => { require('fs').writeFileSync('received.json', JSON.stringify({ args: process.argv.slice(2), input })); console.log('Add helpful changes'); });\n`, { mode: 0o755 });
+  const message = await generateGitCommitMessage(dir, { provider: 'test-provider', id: 'test-model' }, { summary: 'report.txt | 1 +', patch: '+hello' }, { executable });
+  assert.equal(message, 'Add helpful changes');
+  const received = JSON.parse(fs.readFileSync(path.join(dir, 'received.json'), 'utf8'));
+  assert.ok(received.args.includes('--no-tools'));
+  assert.ok(received.args.includes('--no-context-files'));
+  assert.deepEqual(received.args.slice(received.args.indexOf('--provider'), received.args.indexOf('--provider') + 4), ['--provider', 'test-provider', '--model', 'test-model']);
+  assert.match(received.input, /report\.txt[\s\S]*\+hello/);
+});

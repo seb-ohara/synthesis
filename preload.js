@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('mux', {
-  git: { status: cwd => ipcRenderer.invoke('git:status', cwd), review: (cwd, scope, ref) => ipcRenderer.invoke('git:review', { cwd, scope, ref }), action: (cwd, action, data) => ipcRenderer.invoke('git:action', { cwd, action, data }), github: (cwd, action) => ipcRenderer.invoke('git:github', { cwd, action }) },
+  git: { status: cwd => ipcRenderer.invoke('git:status', cwd), review: (cwd, scope, ref) => ipcRenderer.invoke('git:review', { cwd, scope, ref }), action: (cwd, action, data) => ipcRenderer.invoke('git:action', { cwd, action, data }), github: (cwd, action) => ipcRenderer.invoke('git:github', { cwd, action }), commitAuto: (cwd, action, model, expectedBranch) => ipcRenderer.invoke('git:commitAuto', { cwd, action, model, expectedBranch }), openFinder: cwd => ipcRenderer.invoke('git:openFinder', cwd) },
   fonts: { list: (includeSystem) => ipcRenderer.invoke('fonts:list', includeSystem), import: () => ipcRenderer.invoke('fonts:import') },
   chat: {
     start: (id, cwd, sessionPath) => ipcRenderer.invoke('chat:start', { id, cwd, sessionPath }),
