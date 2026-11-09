@@ -97,9 +97,13 @@ ipcMain.handle('git:status', async (_event, cwd) => {
   const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
   try { return { ok: true, ...(await gitControls.status(dir)) }; } catch (error) { const notRepo = /not a git repository/i.test(error.stderr || error.message || ''); return { ok: false, canInit: notRepo, error: notRepo ? 'This folder is not a Git repository.' : (error.stderr || error.message || 'Could not read Git status.').trim().slice(0, 1000) }; }
 });
+ipcMain.handle('git:review', async (_event, { cwd, scope, ref }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
+  try { return { ok: true, ...(await gitControls.review(dir, scope, ref)) }; } catch (error) { return { ok: false, error: (error.stderr || error.message || 'Could not read changes.').trim().slice(0, 1000) }; }
+});
 ipcMain.handle('git:action', async (_event, { cwd, action, data }) => {
   const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
-  try { return { ok: true, output: await gitControls.action(dir, action, data) }; } catch (error) { return { ok: false, error: (error.stderr || error.message || 'Git action failed.').trim().slice(0, 2000) }; }
+  try { return { ok: true, output: await gitControls.action(dir, action, data) }; } catch (error) { return { ok: false, committed: error.committed === true, error: (error.stderr || error.stdout || error.message || 'Git action failed.').trim().slice(0, 2000) }; }
 });
 ipcMain.handle('git:github', async (_event, { cwd, action }) => {
   const dir = pathGuard.resolveAllowed(cwd); if (!dir || !['repo', 'pr', 'createPr'].includes(action)) return { ok: false, error: 'Project folder is unavailable.' };

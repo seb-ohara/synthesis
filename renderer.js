@@ -1760,6 +1760,9 @@ function addPaneTab(ws, pane, opts = {}, activate = true) {
 }
 
 function closePaneTab(ws, pane, tab) {
+  if (!pane.tabs.includes(tab)) return;
+  // Closing the last visible tab closes its split, including any hidden terminal.
+  if (tab.type !== 'terminal' && pane.tabs.filter(item => item.type !== 'terminal').length === 1 && ws.panes.length > 1) { closePane(ws, pane); return; }
   if (appSettings.confirmClose && !window.confirm(`Close tab “${tab.title}”? ${tab.type === 'terminal' ? 'Its running terminal process will be stopped.' : tab.type === 'chat' ? 'Its active chat will be stopped.' : 'The browser page will be closed.'}`)) return;
   const index = pane.tabs.indexOf(tab);
   const wasActive = pane.activeTab === tab;
@@ -2974,18 +2977,26 @@ function toggleFilesView() {
 }
 
 /* ---------------- Git panel ---------------- */
-let gitRefreshSequence = 0, gitVisibleChanges = [];
+let gitRefreshSequence = 0, gitVisibleChanges = [], gitStatusCwd = null;
 function activeGitWorkspace() { const ws = activeWs(); const tab = ws?.panes[ws.activePaneIdx]?.activeTab; return state.workspaces.find(project => project.id === tab?.projectId) || ws; }
+function activeGitCwd() { const ws = activeWs(); const tab = ws?.panes[ws.activePaneIdx]?.activeTab; return tab?.chatCwd || activeGitWorkspace()?.cwd; }
 async function refreshGitPanel() {
   if ($('#git-panel').hidden) return;
   const ws = activeGitWorkspace(), seq = ++gitRefreshSequence;
   const repo = $('#git-repo'), empty = $('#git-empty'), init = $('#git-init');
-  init.hidden = true; $('#git-init-path').textContent = '';
+  init.hidden = true; $('#git-clone-details').hidden = true;
   if (!ws) { repo.hidden = true; empty.hidden = false; $('#git-empty-message').textContent = 'Open a project to use Git.'; return; }
-  const result = await window.mux.git.status(ws.cwd).catch(() => ({ ok: false }));
+  const cwd = activeGitCwd();
+  const result = await window.mux.git.status(cwd).catch(() => ({ ok: false }));
   if (seq !== gitRefreshSequence) return;
   repo.hidden = !result.ok; empty.hidden = !!result.ok;
-  if (!result.ok) { $('#git-empty-message').textContent = result.error || 'This folder is not a Git repository.'; $('#git-init-path').textContent = ws.cwd; init.hidden = !result.canInit; return; }
+  if (!result.ok) { $('#git-empty-message').textContent = result.error || 'This folder is not a Git repository.'; init.hidden = !result.canInit; $('#git-clone-details').hidden = !result.canInit; if (gitStatusCwd !== cwd) $('#git-clone-url').value = ''; gitStatusCwd = cwd; return; }
+  const remoteInput = $('#git-remote-url'), remote = result.remote || '';
+  if (gitStatusCwd !== cwd || remoteInput.value === (remoteInput.dataset.original || '')) remoteInput.value = remote;
+  remoteInput.dataset.original = remote; gitStatusCwd = cwd;
+  $('#git-remote-summary').textContent = remote ? 'Manage repository connection' : 'Connect repository';
+  $('#git-remote-save').textContent = remote ? 'Update repository' : 'Connect repository';
+  $('#git-current-branch').textContent = result.branch;
   const branches = $('#git-branches'); branches.replaceChildren();
   for (const branch of result.branches) branches.add(new Option(branch, branch));
   if (!result.branches.includes(result.branch)) branches.add(new Option(result.branch, result.branch));
@@ -2994,7 +3005,13 @@ async function refreshGitPanel() {
   $('#git-stage-all').disabled = !result.changes.some(change => change.unstaged);
   $('#git-unstage-all').disabled = !result.changes.some(change => change.staged);
   const list = $('#git-changes'); list.replaceChildren();
-  $('#git-count').textContent = `${result.changes.length} ${result.changes.length === 1 ? 'file' : 'files'}`;
+  const counts = result.counts || { added: 0, deleted: 0 };
+  const count = $('#git-count'); count.replaceChildren();
+  const added = document.createElement('span'); added.className = 'git-count-added'; added.textContent = `+${counts.added}`;
+  const deleted = document.createElement('span'); deleted.className = 'git-count-deleted'; deleted.textContent = `−${counts.deleted}`;
+  count.append(added, deleted);
+  if (counts.incomplete) { const marker = document.createElement('span'); marker.textContent = '*'; count.append(marker); }
+  $('#git-count').title = counts.incomplete ? 'Some binary or large files are not included in the line counts.' : `${result.changes.length} changed files`;
   if (!result.changes.length) { const clean = document.createElement('div'); clean.className = 'git-empty'; clean.textContent = 'No uncommitted changes.'; list.append(clean); }
   for (const change of result.changes) {
     const line = document.createElement('div'); line.className = 'git-file';
@@ -3005,26 +3022,81 @@ async function refreshGitPanel() {
   }
 }
 async function runGitAction(action, data = {}) {
-  const ws = activeGitWorkspace(); if (!ws) return;
+  const ws = activeGitWorkspace(), cwd = activeGitCwd(); if (!ws || !cwd) return;
   const feedback = $('#git-feedback'); feedback.textContent = 'Working…';
-  const result = await window.mux.git.action(ws.cwd, action, data).catch(error => ({ ok: false, error: error.message }));
-  feedback.textContent = result.ok ? (result.output || 'Done.') : (result.error || 'Git action failed.');
-  if (result.ok && action === 'commit') $('#git-message').value = '';
-  if (activeGitWorkspace() === ws) refreshGitPanel();
+  const commitButtons = [$('#git-commit'), $('#git-commit-push')];
+  const committing = action === 'commit' || action === 'commitAndPush';
+  const repositoryButtons = [$('#git-init'), $('#git-clone'), $('#git-remote-save')];
+  const changingRepository = ['init', 'clone', 'connectRemote'].includes(action);
+  if (changingRepository) repositoryButtons.forEach(button => { button.disabled = true; });
+  if (committing) commitButtons.forEach(button => { button.disabled = true; });
+  const result = await window.mux.git.action(cwd, action, data).catch(error => ({ ok: false, error: error.message }));
+  if (committing) commitButtons.forEach(button => { button.disabled = false; });
+  if (changingRepository) repositoryButtons.forEach(button => { button.disabled = false; });
+  feedback.textContent = result.ok ? (action === 'connectRemote' ? 'Repository connected.' : action === 'clone' ? 'Repository cloned.' : result.output || 'Done.') : result.committed ? `Commit created, but push failed: ${result.error || 'Git push failed.'}` : (result.error || 'Git action failed.');
+  if ((result.ok && committing) || result.committed) $('#git-message').value = '';
+  if (activeGitCwd() === cwd) refreshGitPanel();
 }
 $('#git-refresh').addEventListener('click', refreshGitPanel);
 $('#git-init').addEventListener('click', () => runGitAction('init'));
+$('#git-clone').addEventListener('click', () => runGitAction('clone', { url: $('#git-clone-url').value }));
+$('#git-remote-save').addEventListener('click', () => runGitAction('connectRemote', { url: $('#git-remote-url').value }));
 $('#git-branches').addEventListener('change', event => runGitAction('switch', { branch: event.target.value }));
 $('#git-new-branch').addEventListener('click', () => { const name = window.prompt('New branch name'); if (name?.trim()) runGitAction('createBranch', { branch: name.trim() }); });
 $('#git-commit').addEventListener('click', () => runGitAction('commit', { message: $('#git-message').value }));
+$('#git-commit-push').addEventListener('click', () => runGitAction('commitAndPush', { message: $('#git-message').value }));
 $('#git-stage-all').addEventListener('click', () => runGitAction('stage', { paths: gitVisibleChanges.filter(change => change.unstaged).map(change => change.path) }));
 $('#git-unstage-all').addEventListener('click', () => runGitAction('unstage', { paths: gitVisibleChanges.filter(change => change.staged).map(change => change.path) }));
 $('#git-panel').addEventListener('click', async event => {
   const git = event.target.closest('[data-git-action]'); if (git) { runGitAction(git.dataset.gitAction); return; }
   const gh = event.target.closest('[data-github-action]'); if (!gh || !activeGitWorkspace()) return;
-  const result = await window.mux.git.github(activeGitWorkspace().cwd, gh.dataset.githubAction).catch(error => ({ ok: false, error: error.message }));
+  const result = await window.mux.git.github(activeGitCwd(), gh.dataset.githubAction).catch(error => ({ ok: false, error: error.message }));
   $('#git-feedback').textContent = result.ok ? 'Opened GitHub.' : result.error;
 });
+
+let gitReviewSequence = 0, gitReviewOptions = { branches: [], commits: [] };
+function updateGitReviewOptions(scope) {
+  const label = $('#git-review-ref-label'), select = $('#git-review-ref');
+  const previous = select.value;
+  label.hidden = scope === 'working';
+  $('#git-review-ref-title').textContent = scope === 'branch' ? 'Base branch' : 'Commit';
+  select.replaceChildren();
+  const options = scope === 'branch' ? gitReviewOptions.branches.map(branch => ({ id: branch, text: branch })) : gitReviewOptions.commits.map(commit => ({ id: commit.id, text: `${commit.id} ${commit.subject}` }));
+  for (const option of options) select.add(new Option(option.text, option.id));
+  if (options.some(option => option.id === previous)) select.value = previous;
+  else if (scope === 'branch') { const fallback = options.find(option => option.id === 'main') || options.find(option => option.id === 'master'); if (fallback) select.value = fallback.id; }
+}
+async function loadGitReview(refreshOptions = false) {
+  const cwd = activeGitCwd(), scope = $('#git-review-scope').value, seq = ++gitReviewSequence;
+  if (!cwd) return;
+  $('#git-review-output').textContent = 'Loading changes…';
+  // Fetch the option lists with the working-tree request before choosing a base/commit.
+  if (refreshOptions && scope !== 'working') {
+    const metadata = await window.mux.git.review(cwd, 'working').catch(error => ({ ok: false, error: error.message }));
+    if (seq !== gitReviewSequence) return;
+    if (!metadata.ok) { $('#git-review-output').textContent = metadata.error; return; }
+    gitReviewOptions = metadata; updateGitReviewOptions(scope);
+  }
+  const ref = scope === 'working' ? '' : $('#git-review-ref').value;
+  if (scope !== 'working' && !ref) { $('#git-review-output').textContent = scope === 'branch' ? 'No local base branches available.' : 'No local commits available.'; return; }
+  const result = await window.mux.git.review(cwd, scope, ref).catch(error => ({ ok: false, error: error.message }));
+  if (seq !== gitReviewSequence || activeGitCwd() !== cwd) return;
+  if (!result.ok) { $('#git-review-output').textContent = result.error || 'Could not read changes.'; return; }
+  gitReviewOptions = result; updateGitReviewOptions(scope);
+  $('#git-review-note').textContent = result.truncated ? 'Diff shortened to 1 MB.' : scope === 'working' ? 'Staged, unstaged and untracked changes in this working folder.' : scope === 'branch' ? 'Changes since the selected branch’s common ancestor.' : 'Changes introduced by the selected commit.';
+  const output = $('#git-review-output'), lines = result.output.split('\n'), fragment = document.createDocumentFragment(); output.replaceChildren();
+  for (const line of lines.slice(0, 6000)) { const row = document.createElement('span'); row.className = line.startsWith('+') && !line.startsWith('+++') ? 'diff-add' : line.startsWith('-') && !line.startsWith('---') ? 'diff-remove' : line.startsWith('@@') ? 'diff-hunk' : ''; row.textContent = line || '\u00a0'; fragment.append(row); }
+  if (lines.length > 6000) $('#git-review-note').textContent = 'Showing the first 6,000 diff lines.';
+  output.append(fragment);
+}
+$('#git-review-open').addEventListener('click', () => {
+  $('#git-menu-content').hidden = true; $('#git-review').hidden = false; $('#git-panel').classList.add('reviewing');
+  $('#git-review-scope').value = 'working'; updateGitReviewOptions('working'); positionGitPanel(); loadGitReview();
+});
+$('#git-review-close').addEventListener('click', () => { ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); positionGitPanel(); $('#git-review-open').focus(); });
+$('#git-review-scope').addEventListener('change', () => { const scope = $('#git-review-scope').value; updateGitReviewOptions(scope); loadGitReview(true); });
+$('#git-review-ref').addEventListener('change', () => loadGitReview());
+$('#git-panel').addEventListener('toggle', () => requestAnimationFrame(positionGitPanel), true);
 
 /* ---------------- panel collapse ---------------- */
 
@@ -3051,14 +3123,22 @@ function positionGitPanel() {
   const panel = $('#git-panel');
   if (panel.hidden || !gitAnchor?.isConnected) return;
   const rect = gitAnchor.getBoundingClientRect();
-  const margin = 8;
-  panel.style.maxHeight = `${Math.max(80, Math.min(480, rect.top - margin * 2))}px`;
-  panel.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - panel.offsetWidth - margin))}px`;
-  panel.style.top = `${Math.max(margin, rect.top - panel.offsetHeight - margin)}px`;
+  const margin = 8, gap = 8;
+  const above = Math.max(0, rect.top - margin - gap);
+  const below = Math.max(0, window.innerHeight - rect.bottom - margin - gap);
+  const showAbove = above >= Math.min(200, window.innerHeight * 0.45) || above >= below;
+  const available = showAbove ? above : below;
+  panel.style.maxHeight = `${Math.max(0, Math.min(480, available, window.innerHeight - 2 * margin))}px`;
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - panel.offsetWidth - margin));
+  const preferredTop = showAbove ? rect.top - panel.offsetHeight - gap : rect.bottom + gap;
+  const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - panel.offsetHeight - margin));
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
 }
 function setFsCollapsed(collapsed) {
   els.app.classList.add('fs-collapsed');
   $('#git-panel').hidden = collapsed;
+  if (collapsed) { ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); document.querySelectorAll('#git-repo details, #git-clone-details').forEach(group => { group.open = false; }); }
   updateFilesToggle();
   if (!collapsed) { positionGitPanel(); refreshGitPanel().then(positionGitPanel); }
   requestBrowserSync();
@@ -3070,6 +3150,12 @@ $('#git-panel').addEventListener('keydown', event => {
   if (event.key === 'Escape') { event.stopPropagation(); setFsCollapsed(true); gitAnchor?.focus(); }
 });
 window.addEventListener('resize', positionGitPanel);
+let gitPositionPending = false;
+new ResizeObserver(() => {
+  if ($('#git-panel').hidden || gitPositionPending) return;
+  gitPositionPending = true;
+  requestAnimationFrame(() => { gitPositionPending = false; positionGitPanel(); });
+}).observe($('#git-panel'));
 
 /* ---------------- panel resize ---------------- */
 

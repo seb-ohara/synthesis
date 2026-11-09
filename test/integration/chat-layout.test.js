@@ -61,3 +61,28 @@ test('older saved splits restore as one pane without dropping tabs', async t => 
   assert.equal(restored.panes, 1);
   assert.deepEqual(new Set(restored.tabs), new Set(['ws-1-p1', 'ws-1-p2']));
 });
+
+test('closing the last tab closes its split while preserving the final pane', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-close-split-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  await page.evaluate(() => { appSettings.confirmClose = false; });
+  await page.locator('.ws-view.active .pane-btn[data-action="splitRight"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
+  const split = page.locator('.ws-view.active .tile').last();
+  await page.evaluate(() => { const ws = activeWs(); addPaneTab(ws, ws.panes[ws.activePaneIdx], { type: 'chat' }); });
+  assert.equal(await split.locator('.pane-tab').count(), 2);
+  await split.locator('.pane-tab-close').last().click();
+  assert.equal(await page.locator('.ws-view.active .tile').count(), 2);
+  assert.equal(await split.locator('.pane-tab').count(), 1);
+  await split.locator('.pane-tab-close').click();
+  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 1);
+  const paneWidth = await page.locator('.ws-view.active .tile').evaluate(el => el.getBoundingClientRect().width);
+  const centerWidth = await page.locator('#center').evaluate(el => el.getBoundingClientRect().width);
+  assert.ok(Math.abs(paneWidth - centerWidth) < 2);
+  await page.locator('.ws-view.active .pane-tab-close').click();
+  assert.equal(await page.locator('.ws-view.active .tile').count(), 1);
+  assert.equal(await page.locator('.ws-view.active .chat-body').count(), 1);
+});
