@@ -108,11 +108,17 @@ const DEFAULT_SHORTCUTS = {
 const SYNTHESIS_ACCENT = '#b8eaff';
 const SYNTHESIS_GRADIENT = 'linear-gradient(110deg, #d9cbff 0%, #b8eaff 54%, #c4ffe1 100%)';
 // Only the pane outline is softened; the accent preset and fills stay full strength.
-const SYNTHESIS_BORDER_GRADIENT = 'linear-gradient(110deg, #d9cbffb3 0%, #b8eaffb3 54%, #c4ffe1b3 100%)';
+const SYNTHESIS_BORDER_GRADIENT = 'linear-gradient(110deg, #d9cbff86 0%, #b8eaff86 54%, #c4ffe186 100%)';
 function accentColor() { return appSettings.accentColor === 'synthesis' ? SYNTHESIS_ACCENT : appSettings.accentColor; }
 
 const DEFAULT_SETTINGS = {
   accentColor: '#ff7a1a',
+  chatBackground: '#141416',
+  sidebarColor: '#101011',
+  bubbleColor: '#29383b',
+  chatText: '#e9e9eb',
+  chatFont: '',
+  chatFontSize: 13,
   fontSize: 12,
   cursorStyle: 'bar',
   cursorBlink: true,
@@ -126,16 +132,16 @@ const KEYBINDING_ACTIONS = [
   { id: 'closeTab', label: 'Close current tab' },
   { id: 'nextTab', label: 'Next tab' },
   { id: 'previousTab', label: 'Previous tab' },
-  { id: 'newSession', label: 'New workspace' },
-  { id: 'closeSession', label: 'Close workspace' },
+  { id: 'newSession', label: 'New project' },
+  { id: 'closeSession', label: 'Close project' },
   { id: 'openFiles', label: 'Open file or folder' },
   { id: 'splitRight', label: 'Split pane right' },
   { id: 'splitDown', label: 'Split pane down' },
   { id: 'browserRight', label: 'Open browser split right' },
   { id: 'browserDown', label: 'Open browser split down' },
   { id: 'clearTerminal', label: 'Clear terminal' },
-  { id: 'nextWorkspace', label: 'Next workspace' },
-  { id: 'previousWorkspace', label: 'Previous workspace' },
+  { id: 'nextWorkspace', label: 'Next project' },
+  { id: 'previousWorkspace', label: 'Previous project' },
   { id: 'nextPane', label: 'Focus next pane' },
 ];
 const KEY_MODIFIERS = ['Meta', 'Ctrl', 'Alt', 'Shift'];
@@ -201,7 +207,10 @@ function loadSettings() {
   return {
     ...DEFAULT_SETTINGS,
     accentColor,
+    ...Object.fromEntries(['chatBackground', 'sidebarColor', 'bubbleColor', 'chatText'].map(key => [key, /^#[0-9a-f]{6}$/i.test(saved[key] || '') ? saved[key] : DEFAULT_SETTINGS[key]])),
     fontSize,
+    chatFont: typeof saved.chatFont === 'string' && saved.chatFont.length < 300 ? saved.chatFont : '',
+    chatFontSize: [12, 13, 14, 15, 16, 18, 20, 22, 24].includes(Number(saved.chatFontSize)) ? Number(saved.chatFontSize) : 13,
     cursorStyle: CURSOR_STYLES.includes(saved.cursorStyle) ? saved.cursorStyle : DEFAULT_SETTINGS.cursorStyle,
     cursorBlink: typeof saved.cursorBlink === 'boolean' ? saved.cursorBlink : DEFAULT_SETTINGS.cursorBlink,
     scrollback,
@@ -257,6 +266,11 @@ function updateShortcutTooltips() {
 
 function applySettings() {
   window.mux.app.setTabShortcuts(Object.fromEntries(['newTab', 'closeTab', 'nextTab', 'previousTab'].map((action) => [action, normalizeShortcut(appSettings.shortcuts[action])])));
+  for (const [key, variable] of Object.entries({ chatBackground: '--chat-background', sidebarColor: '--sidebar-background', bubbleColor: '--chat-bubble', chatText: '--chat-text' })) document.documentElement.style.setProperty(variable, appSettings[key]);
+  const fontFamily = appSettings.chatFont.startsWith('import:') ? 'Synthesis imported ' + appSettings.chatFont.slice(7) : appSettings.chatFont;
+  document.documentElement.style.setProperty('--chat-font', fontFamily ? JSON.stringify(fontFamily) + ', sans-serif' : 'var(--sans)');
+  document.documentElement.style.setProperty('--chat-font-size', appSettings.chatFontSize + 'px');
+  document.documentElement.style.setProperty('--thinking-gradient', appSettings.accentColor === 'synthesis' ? SYNTHESIS_GRADIENT : `linear-gradient(90deg, ${accentColor()}, ${accentColor()})`);
   document.documentElement.style.setProperty('--accent', accentColor());
   document.documentElement.style.setProperty('--accent-dim', darkenHex(accentColor()));
   document.documentElement.style.setProperty('--accent-fill', appSettings.accentColor === 'synthesis' ? SYNTHESIS_GRADIENT : accentColor());
@@ -630,7 +644,7 @@ function focusPaneSurface(pane) {
   else if (pane.type === 'chat') pane.body.querySelector('textarea')?.focus();
 }
 
-function splitPane(ws, pane, dir, type = 'terminal') {
+function splitPane(ws, pane, dir, type = 'chat') {
   if (ws.closingPane) return;
   const found = findLeaf(ws.tree, pane);
   if (!found) return;
@@ -1196,7 +1210,7 @@ function syncBrowserBounds() {
   const active = activeWs();
   const overlayOpen = ['#settings-backdrop', '#history-backdrop', '#modal-backdrop']
     .some((sel) => { const el = $(sel); return el && !el.classList.contains('hidden'); })
-    || menuEl.classList.contains('visible');
+    || menuEl.classList.contains('visible') || !projectFilterPanel.hidden;
   for (const ws of state.workspaces) {
     for (const pane of workspaceTabs(ws)) {
       if (pane.type !== 'browser' || !pane.viewport) continue;
@@ -1363,7 +1377,8 @@ function renderPaneTabs(pane) {
   const focusedId = focusedItem && pane.tabList.contains(focusedItem) ? focusedItem.dataset.tabId : null;
   const focusedClass = focused?.classList.contains('pane-tab-close') ? 'pane-tab-close' : 'pane-tab-select';
   pane.tabList.replaceChildren();
-  pane.tabs.forEach((tab, index) => {
+  const visibleTabs = pane.tabs.filter((tab) => tab.type !== 'terminal');
+  visibleTabs.forEach((tab, index) => {
     const item = document.createElement('div');
     item.className = 'pane-tab' + (tab === pane.activeTab ? ' selected' : '');
     item.dataset.tabId = tab.id;
@@ -1398,18 +1413,18 @@ function renderPaneTabs(pane) {
       if (event.altKey && event.shiftKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault();
         const offset = event.key === 'ArrowLeft' ? -1 : 2;
-        movePaneTab(tab, pane, index + offset, false);
+        movePaneTab(tab, pane, pane.tabs.indexOf(tab) + offset, false);
         pane.tabList.querySelector(`[data-tab-id="${tab.id}"] .pane-tab-select`)?.focus();
         return;
       }
       let next = index;
-      if (event.key === 'ArrowRight') next = (index + 1) % pane.tabs.length;
-      else if (event.key === 'ArrowLeft') next = (index - 1 + pane.tabs.length) % pane.tabs.length;
+      if (event.key === 'ArrowRight') next = (index + 1) % visibleTabs.length;
+      else if (event.key === 'ArrowLeft') next = (index - 1 + visibleTabs.length) % visibleTabs.length;
       else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = pane.tabs.length - 1;
+      else if (event.key === 'End') next = visibleTabs.length - 1;
       else return;
       event.preventDefault();
-      activateTab(pane.ws, pane, pane.tabs[next], false);
+      activateTab(pane.ws, pane, visibleTabs[next], false);
       pane.tabList.querySelector('[aria-selected="true"]').focus();
     });
     const close = document.createElement('button');
@@ -1448,7 +1463,7 @@ function activateTab(ws, pane, tab, focus = true) {
 
 function initChatPane(ws, tab) {
   tab.body.classList.add('chat-body');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-spinner"></span><span class="chat-status-text">Thinking</span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything about this workspace…"></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5.5 8.5 10 4l4.5 4.5"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything about this workspace…"></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 10.5l5-5a3 3 0 0 1 4.2 4.2l-6.7 6.7a4.5 4.5 0 0 1-6.4-6.4l6.7-6.7a2 2 0 0 1 2.8 2.8L6 12.7"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5.5 8.5 10 4l4.5 4.5"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1523,14 +1538,45 @@ function initChatPane(ws, tab) {
     attachments.forEach(path => { const chip = document.createElement('span'); chip.className = 'chat-attachment'; const name = document.createElement('span'); name.textContent = path.split('/').filter(Boolean).pop() || path; name.title = path; const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', 'Remove ' + name.textContent); remove.addEventListener('click', () => { attachments = attachments.filter(item => item !== path); renderAttachments(); update(); }); chip.append(name, remove); attachmentList.append(chip); });
   }
   attachButton.addEventListener('click', async () => { const path = await window.mux.app.pickPath(); if (path && !tab.disposed && !attachments.includes(path)) { attachments.push(path); renderAttachments(); update(); } });
-  let streaming = null, busy = false, ready = false;
-  function update() { button.disabled = !ready || busy || changing || (!input.value.trim() && !attachments.length); modelSelect.disabled = !ready || busy || changing; reasoningSelect.disabled = !ready || busy || changing; attachButton.disabled = busy || changing; status.hidden = !busy; }
+  let streaming = null, busy = false, ready = false, lastSidebarBusy = null;
+  let turnCount = 0, timerStarted = null, timerInterval = null, timerNode = null, pendingRender = null;
+  function formatElapsed(ms) {
+    const seconds = Math.floor(ms / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), sec = seconds % 60;
+    return h ? `${h}h ${m}m ${sec}s` : m ? `${m}m ${sec}s` : `${sec}s`;
+  }
+  function addTimer(ms, running = false) {
+    const node = document.createElement('div'); node.className = 'chat-work-timer';
+    node.textContent = `${running ? 'Working' : 'Worked'} for ${formatElapsed(ms)}`;
+    messages.append(node); return node;
+  }
+  function beginTimer() {
+    timerStarted = Date.now(); timerNode = addTimer(0, true);
+    timerInterval = setInterval(() => { if (timerNode) timerNode.textContent = `Working for ${formatElapsed(Date.now() - timerStarted)}`; }, 1000);
+  }
+  function finishTimer() {
+    if (timerStarted === null) return;
+    const elapsed = Date.now() - timerStarted;
+    clearInterval(timerInterval); timerInterval = null;
+    if (timerNode) timerNode.textContent = `Worked for ${formatElapsed(elapsed)}`;
+    const key = tab.sessionPath || tab.id; const durations = { ...(chatMeta(key).durations || {}), [turnCount]: elapsed };
+    setChatMeta(key, { durations }); timerStarted = null; timerNode = null;
+  }
+  tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
+  tab.modified = Date.now();
+  function update() { tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(ws); renderList(); } button.disabled = !ready || busy || changing || (!input.value.trim() && !attachments.length); modelSelect.disabled = !ready || busy || changing; reasoningSelect.disabled = !ready || busy || changing; attachButton.disabled = busy || changing; status.hidden = !busy; }
+  tab.abortChat = () => { if (busy) { command('abort'); statusText.textContent = 'Stopping…'; } };
   function add(role, content) {
     if (!content) return null;
     welcome.hidden = true;
     const row = document.createElement('div'); row.className = 'chat-message ' + role;
     const body = document.createElement('div'); body.className = 'chat-message-content';
-    row.append(body); messages.append(row); renderText(body, content); scroll.scrollTop = scroll.scrollHeight; return body;
+    row.append(body);
+    if (role === 'assistant') {
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'chat-response-copy'; copy.title = 'Copy response'; copy.setAttribute('aria-label', 'Copy response');
+      const icon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
+      copy.innerHTML = icon; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(body.raw || ''); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.title = 'Copied'; copy.setAttribute('aria-label', 'Response copied'); setTimeout(() => { if (copy.isConnected) { copy.innerHTML = icon; copy.title = 'Copy response'; copy.setAttribute('aria-label', 'Copy response'); } }, 2000); } catch { copy.title = 'Copy failed'; copy.setAttribute('aria-label', 'Copy failed'); } }); row.append(copy);
+    }
+    messages.append(row); body.raw = content; renderText(body, content); scroll.scrollTop = scroll.scrollHeight; return body;
   }
   function renderText(el, value) {
     // Render a safe, useful Markdown subset without interpreting model-supplied HTML.
@@ -1562,39 +1608,39 @@ function initChatPane(ws, tab) {
   tab.unsubs.push(window.mux.chat.onEvent(tab.id, event => {
     if (event.type === 'response' && event.command === 'get_messages') {
       ready = event.success;
-      if (event.success) { messages.replaceChildren(); welcome.hidden = false; for (const m of event.data.messages || []) { if (m.role === 'user' || m.role === 'assistant') add(m.role, textOf(m)); } }
+      if (event.success) { messages.replaceChildren(); welcome.hidden = false; turnCount = 0; const durations = chatMeta(tab.sessionPath || tab.id).durations || {}; for (const m of event.data.messages || []) { if (m.role === 'user' || m.role === 'assistant') { const text = textOf(m); add(m.role, text); if (m.role === 'user' && text) { turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]); } if (m.role === 'user' && text) { tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); } if (m.role === 'user' && tab.title === 'Chat' && text) setPaneTitle(tab, text.replace(/\s+/g, ' ').slice(0, 45)); } } }
       else add('error', event.error || 'Could not load this chat.'); update();
     } else if (event.type === 'response' && event.command === 'get_available_models') {
       models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); updateModelLabel(); if (!modelMenu.hidden) renderModels();
     } else if (event.type === 'response' && event.command === 'get_state' && event.success) {
       const model = event.data.model; currentModel = model ? modelKey(model) : ''; updateModelLabel();
-      tab.sessionPath = event.data.sessionFile || ''; currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); saveWorkspaces();
+      if (event.data.sessionFile && tab.sessionPath !== event.data.sessionFile) { moveChatMeta(tab.id, event.data.sessionFile); tab.sessionPath = event.data.sessionFile; refreshProjectChats(ws); } if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath); currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); saveWorkspaces();
     } else if (event.type === 'response' && event.command === 'set_model') {
       changing = false; if (!event.success) { add('error', event.error || 'Could not change model.'); updateModelLabel(); } else { const m = event.data; currentModel = modelKey(m); updateModelLabel(); command('get_state'); command('get_available_thinking_levels'); } update();
     } else if (event.type === 'response' && event.command === 'get_available_thinking_levels') {
       levels = event.data?.levels?.length ? event.data.levels : ['off']; renderReasoning();
     } else if (event.type === 'response' && event.command === 'set_thinking_level') {
       changing = false; if (!event.success) add('error', event.error || 'Could not change reasoning level.'); else { currentReasoning = pendingReasoning; command('get_state'); } pendingReasoning = null; renderReasoning(); update();
-    } else if (event.type === 'response' && event.command === 'prompt' && (!event.success || event.data?.disposition === 'handled')) { busy = false; if (!event.success) add('error', event.error || 'Could not send message.'); update(); }
+    } else if (event.type === 'response' && event.command === 'prompt' && (!event.success || event.data?.disposition === 'handled')) { busy = false; finishTimer(); if (!event.success) add('error', event.error || 'Could not send message.'); update(); }
     else if (event.type === 'message_start' && event.message?.role === 'assistant') streaming = null;
     else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
       if (!streaming) { streaming = add('assistant', ' '); streaming.raw = ''; }
-      streaming.raw += event.assistantMessageEvent.delta; renderText(streaming, streaming.raw); scroll.scrollTop = scroll.scrollHeight;
+      streaming.raw += event.assistantMessageEvent.delta; if (pendingRender === null) pendingRender = requestAnimationFrame(() => { pendingRender = null; if (streaming) { renderText(streaming, streaming.raw); scroll.scrollTop = scroll.scrollHeight; } });
     } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const text = textOf(event.message); if (streaming) renderText(streaming, text); else if (text) add('assistant', text);
+      const text = textOf(event.message); if (pendingRender !== null) { cancelAnimationFrame(pendingRender); pendingRender = null; } if (streaming) { streaming.raw = text; renderText(streaming, text); } else if (text) add('assistant', text);
       if (event.message.errorMessage) add('error', event.message.errorMessage); streaming = null;
-    } else if (event.type === 'tool_execution_start') { statusText.textContent = 'Using ' + event.toolName; }
+    } else if (event.type === 'tool_execution_start') { statusText.textContent = 'Thinking'; }
     else if (event.type === 'tool_execution_end') { statusText.textContent = 'Thinking'; }
-    else if (event.type === 'agent_settled') { busy = false; statusText.textContent = 'Thinking'; command('get_state'); update(); }
+    else if (event.type === 'agent_end' || event.type === 'agent_settled') { busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(ws); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
       else if (['input', 'editor', 'select'].includes(event.method)) { const answer = window.prompt(event.title + (event.options ? '\n' + event.options.join('\n') : ''), event.prefill || ''); if (answer === null) response.cancelled = true; else response.value = answer; }
       else { if (event.method === 'notify') add('error', event.message); return; }
       window.mux.chat.command(tab.id, response);
-    } else if (event.type === 'process_error' || event.type === 'process_exit') { ready = false; busy = false; add('error', event.error || 'Pi stopped. Close and reopen this chat to try again.'); update(); }
+    } else if (event.type === 'process_error' || event.type === 'process_exit') { ready = false; busy = false; finishTimer(); add('error', event.error || 'Pi stopped. Close and reopen this chat to try again.'); update(); }
   }));
-  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length) || busy || !ready || changing) return; const paths = [...attachments]; const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n'); add('user', message); input.value = ''; attachments = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message }); });
+  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length) || busy || !ready || changing) return; const paths = [...attachments]; const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n'); add('user', message); turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); input.value = ''; attachments = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message }); });
   function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
   input.addEventListener('input', () => { resizeInput(); update(); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
@@ -1635,8 +1681,8 @@ function closePaneTab(ws, pane, tab) {
   const wasActive = pane.activeTab === tab;
   disposeTab(tab);
   pane.tabs.splice(index, 1);
-  if (!pane.tabs.length) addPaneTab(ws, pane, { type: 'terminal' });
-  else if (wasActive) activateTab(ws, pane, pane.tabs[Math.min(index, pane.tabs.length - 1)]);
+  if (!pane.tabs.some((item) => item.type !== 'terminal')) addPaneTab(ws, pane, { type: 'chat' });
+  else if (wasActive) activateTab(ws, pane, pane.tabs.filter((item) => item.type !== 'terminal')[0]);
   else { renderPaneTabs(pane); renderChrome(); saveWorkspaces(); }
   scheduleStatusUpdate(ws);
 }
@@ -1666,7 +1712,8 @@ function createPane(ws, opts = {}) {
   if (!opts.tabs && opts.type === 'browser' && opts.hasTerminal) {
     addPaneTab(ws, pane, { type: 'terminal', id: paneId, restore: Boolean(opts.restore) }, false);
   }
-  pane.activeTab = pane.tabs.find((tab) => tab.id === opts.activeTabId) || pane.tabs[0];
+  if (!pane.tabs.some((tab) => tab.type !== 'terminal')) addPaneTab(ws, pane, { type: 'chat' }, false);
+  pane.activeTab = pane.tabs.find((tab) => tab.id === opts.activeTabId && tab.type !== 'terminal') || pane.tabs.find((tab) => tab.type !== 'terminal');
   pane.tabs.forEach((tab) => tab.body.classList.toggle('tab-hidden', tab !== pane.activeTab));
   const actions = buildPaneActions(ws, pane);
   const strip = document.createElement('div');
@@ -1844,10 +1891,11 @@ function createWorkspace({ name, cwd, id, restore }) {
     ws.activePaneIdx = activeIdx >= 0 ? activeIdx : 0;
     if (restore.fileDir) ws.fileDir = restore.fileDir;
   } else {
-    ws.tree = { type: 'leaf', pane: createPane(ws) };
+    ws.tree = { type: 'leaf', pane: createPane(ws, { type: 'chat' }) };
   }
   refreshView(ws);
   renderList();
+  refreshProjectChats(ws);
   saveWorkspaces();
   return ws;
 }
@@ -1895,12 +1943,10 @@ function setActive(id) {
   }
 }
 
-/* Start the workspace indicator only when a terminal command is submitted. */
+/* Chat activity drives the workspace indicator; legacy terminal timers are retained. */
 const WORKING_QUIET_MS = 1400;
 function workspaceActivity(ws) {
-  const terms = workspaceTabs(ws).filter((pane) => pane.hasTerminal);
-  if (terms.length > 0 && terms.every((pane) => pane.exited)) return 'done';
-  return terms.some((pane) => !pane.exited && pane.isWorking) ? 'working' : 'idle';
+  return workspaceTabs(ws).some((tab) => tab.type === 'chat' && tab.isWorking) ? 'working' : 'idle';
 }
 
 function scheduleStatusUpdate(ws) {
@@ -1911,13 +1957,13 @@ function scheduleStatusUpdate(ws) {
     renderList();
   }
 
-  const activePanes = workspaceTabs(ws).filter((pane) => !pane.exited && pane.isWorking);
+  const activePanes = workspaceTabs(ws).filter((pane) => pane.type === 'terminal' && !pane.exited && pane.isWorking);
   if (activePanes.length) {
     const nextIdleAt = Math.min(...activePanes.map((pane) => pane.lastActivityAt + WORKING_QUIET_MS));
     ws.activityTimer = setTimeout(() => {
       const now = Date.now();
       for (const pane of workspaceTabs(ws)) {
-        if (pane.isWorking && now - pane.lastActivityAt >= WORKING_QUIET_MS) pane.isWorking = false;
+        if (pane.type === 'terminal' && pane.isWorking && now - pane.lastActivityAt >= WORKING_QUIET_MS) pane.isWorking = false;
       }
       scheduleStatusUpdate(ws);
     }, Math.max(0, nextIdleAt - Date.now()) + 20);
@@ -1926,55 +1972,100 @@ function scheduleStatusUpdate(ws) {
 
 /* ---------------- rendering: sidebar + chrome ---------------- */
 
-function renderList() {
-  els.list.innerHTML = '';
+let workspaceSortAlphabetically = false;
+let showArchivedChats = false;
+let projectFilter = 'all';
+const CHAT_META_KEY = 'synthesis.chat.sidebar';
+const SCRATCH_KEY = 'synthesis.scratch.projects';
+const OWNED_CHATS_KEY = 'synthesis.chat.ownedSessions';
+function readLocalMap(key) { try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { return {}; } }
+function rememberConversation(path) { if (!path) return; const owned = readLocalMap(OWNED_CHATS_KEY); if (!owned[path]) { owned[path] = true; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned)); } }
+function chatMeta(key) { return readLocalMap(CHAT_META_KEY)[key] || {}; }
+function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[key] = { ...all[key], ...patch }; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); renderList(); }
+function moveChatMeta(from, to) { const all = readLocalMap(CHAT_META_KEY); if (all[from]) { all[to] = { ...all[to], ...all[from] }; delete all[from]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); } }
+function isScratch(ws) { return !!readLocalMap(SCRATCH_KEY)[ws.id]; }
+function setScratch(ws, value) { const all = readLocalMap(SCRATCH_KEY); if (value) all[ws.id] = true; else delete all[ws.id]; localStorage.setItem(SCRATCH_KEY, JSON.stringify(all)); }
+async function refreshProjectChats(ws) {
+  const cwd = ws.cwd;
+  try { const sessions = await window.mux.chat.sessions(cwd); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); } } catch {}
+}
+function conversationRows() {
+  const rows = [];
   for (const ws of state.workspaces) {
-    const card = document.createElement('div');
-    card.className = 'ws-card' + (ws.id === state.activeId ? ' active' : '');
-    card.dataset.id = ws.id;
-
-    const heading = document.createElement('div');
-    heading.className = 'ws-heading';
-
-    const name = document.createElement('div');
-    name.className = 'ws-name';
-    name.textContent = ws.name;
-    name.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      startRename(card, ws);
-    });
-
-    const status = document.createElement('div');
-    status.className = `ws-status ${ws.activity || 'idle'}`;
-    status.setAttribute('aria-label', `Workspace status: ${ws.activity || 'idle'}`);
-    const indicator = document.createElement('span');
-    indicator.className = 'ws-status-indicator';
-    indicator.setAttribute('aria-hidden', 'true');
-    if ((ws.activity || 'idle') === 'working') {
-      const orders = [2, 3, 4, 1, null, 5, 0, 7, 6];
-      for (const order of orders) {
-        const dot = document.createElement('span');
-        dot.className = 'ws-status-dot';
-        if (order !== null) dot.dataset.order = String(order);
-        indicator.appendChild(dot);
-      }
-    }
-    const label = document.createElement('span');
-    label.textContent = ws.activity || 'idle';
-    status.append(indicator, label);
-
-    heading.append(name, status);
-
-    const pathEl = document.createElement('div');
-    pathEl.className = 'ws-path';
-    pathEl.textContent = shortPath(ws.cwd);
-
-    card.append(heading, pathEl);
-    card.addEventListener('click', () => setActive(ws.id));
-    els.list.appendChild(card);
+    const owned = readLocalMap(OWNED_CHATS_KEY);
+    const open = workspaceTabs(ws).filter(tab => tab.type === 'chat' && tab.hasConversation);
+    const paths = new Set(open.map(tab => tab.sessionPath).filter(Boolean));
+    for (const tab of open) rows.push({ ws, tab, key: tab.sessionPath || tab.id, title: tab.title || 'New chat', modified: tab.modified || 0 });
+    for (const session of ws.chatHistory || []) if (owned[session.path] && !paths.has(session.path)) rows.push({ ws, session, key: session.path, title: session.title, modified: session.modified });
   }
-  els.wsCount.textContent =
-    state.workspaces.length + (state.workspaces.length === 1 ? ' session' : ' sessions');
+  return rows;
+}
+function openConversation(row) {
+  setActive(row.ws.id);
+  if (row.tab) { activateTab(row.ws, row.tab.owner, row.tab); return; }
+  addPaneTab(row.ws, row.ws.panes[row.ws.activePaneIdx], { type: 'chat', sessionPath: row.session.path });
+}
+function relativeTime(stamp) {
+  if (!stamp) return '';
+  const seconds = Math.max(0, Math.floor((Date.now() - stamp) / 1000));
+  if (seconds < 60) return 'now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
+  return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+function conversationMenu(row, x, y) {
+  const meta = chatMeta(row.key);
+  const items = [
+    { label: meta.pinned ? 'Unpin chat' : 'Pin chat', action: () => setChatMeta(row.key, { pinned: !meta.pinned }) },
+    { label: meta.archived ? 'Restore chat' : 'Archive chat', action: () => setChatMeta(row.key, { archived: !meta.archived }) },
+    'sep',
+    { label: isScratch(row.ws) ? 'Turn into project…' : 'Rename project…', action: () => {
+      const name = window.prompt('Project name', isScratch(row.ws) ? '' : row.ws.name);
+      if (!name || !name.trim()) return;
+      row.ws.name = name.trim(); setScratch(row.ws, false); saveWorkspaces(); renderChrome(); renderList();
+    } },
+    { label: 'New chat in project', action: () => { setActive(row.ws.id); addPaneTab(row.ws, row.ws.panes[row.ws.activePaneIdx], { type: 'chat' }); } },
+  ];
+  showMenu(x, y, items);
+}
+function conversationProjectIcon(scratch = false) {
+  return `<svg class="project-chat-icon${scratch ? ' scratch' : ''}" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4.5h14v9H9l-4 3v-3H3z"/></svg>`;
+}
+
+function renderList() {
+  els.list.replaceChildren();
+  const query = $('#workspace-search').value.trim().toLocaleLowerCase();
+  const rows = conversationRows().filter(row => {
+    const meta = chatMeta(row.key);
+    const matchesProject = projectFilter === 'all' || (projectFilter === 'scratch' ? isScratch(row.ws) : row.ws.id === projectFilter);
+    return matchesProject && !!meta.archived === showArchivedChats && `${row.title} ${isScratch(row.ws) ? 'No project' : row.ws.name} ${row.ws.cwd}`.toLocaleLowerCase().includes(query);
+  });
+  rows.sort((a, b) => Number(!!chatMeta(b.key).pinned) - Number(!!chatMeta(a.key).pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
+  for (const row of rows) {
+    const { ws, tab } = row; const meta = chatMeta(row.key);
+    const card = document.createElement('div'); card.className = 'ws-card chat-card' + (ws.id === state.activeId && tab && ws.panes[ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
+    card.dataset.id = ws.id; card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratch(ws) ? 'No project' : ws.name}`);
+    const heading = document.createElement('div'); heading.className = 'conversation-heading';
+    const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratch(ws)); const projectName = document.createElement('span'); projectName.textContent = isScratch(ws) ? 'No project' : ws.name; project.append(projectName);
+    const time = document.createElement('span'); time.className = 'conversation-time'; time.textContent = relativeTime(row.modified);
+    heading.append(project, time);
+    const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
+    const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
+    const status = document.createElement('span'); status.className = `ws-status ${tab?.isWorking ? 'working' : 'idle'}`; status.setAttribute('aria-label', tab?.isWorking ? 'Working' : 'Idle');
+    const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
+    if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
+    status.append(indicator);
+    const more = document.createElement('button'); more.type = 'button'; more.className = 'conversation-more'; more.textContent = '⋯'; more.setAttribute('aria-label', 'Chat options');
+    more.addEventListener('click', event => { event.stopPropagation(); const rect = more.getBoundingClientRect(); conversationMenu(row, rect.left, rect.bottom + 4); });
+    bottom.append(title, status, more); card.append(heading, bottom);
+    card.addEventListener('click', () => openConversation(row));
+    card.addEventListener('keydown', event => { if (event.target !== card) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(row); } });
+    card.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); conversationMenu(row, event.clientX, event.clientY); });
+    els.list.append(card);
+  }
+  if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; els.list.append(empty); }
+  els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;
 }
 
 function startRename(card, ws) {
@@ -2016,9 +2107,8 @@ function renderChrome() {
   els.statusWs.textContent = ws.name;
   els.statusCwd.textContent = shortPath(ws.cwd);
 
-  const totalPanes = state.workspaces.reduce(
-    (n, w) => n + workspaceTabs(w).filter((p) => p.hasTerminal).length, 0);
-  els.statusPts.textContent = totalPanes + (totalPanes === 1 ? ' pty' : ' ptys');
+  const totalPanes = ws.panes.length;
+  els.statusPts.textContent = totalPanes + (totalPanes === 1 ? ' pane' : ' panes');
 }
 
 /* ---------------- file viewer ---------------- */
@@ -2567,7 +2657,6 @@ function paneMenu(ws, pane) {
   const isMultiple = ws.panes.length > 1;
   const items = [
     { label: 'Add New Chat Tab', disabled: pane.tabs.length >= 32, action: () => addPaneTab(ws, pane, { type: 'chat' }) },
-    { label: 'New Terminal Tab', disabled: pane.tabs.length >= 32, action: () => addPaneTab(ws, pane, { type: 'terminal' }) },
     { label: 'New Browser Tab', disabled: pane.tabs.length >= 32, action: () => addPaneTab(ws, pane, { type: 'browser' }) },
     { label: 'Close Tab', action: () => closePaneTab(ws, pane, pane.activeTab) },
     'sep',
@@ -2595,7 +2684,7 @@ function paneMenu(ws, pane) {
       'sep',
       { label: 'Clear Terminal', action: () => pane.term.clear() },
     );
-  } else {
+  } else if (pane.type === 'browser') {
     items.push(
       { label: 'Open in Default Browser', action: () => window.mux.browser.openExternal(surfaceId(pane)) },
       { label: 'Zoom In', action: () => setBrowserZoom(ws, pane, (pane.zoom || 1) + 0.1) },
@@ -2655,7 +2744,7 @@ async function changeWorkspaceDirectory(ws) {
     renderChrome();
     refreshFilesView();
   }
-  window.alert('Workspace directory updated. New terminals will start in this folder; existing terminals and running processes are unchanged.');
+  window.alert('Workspace directory updated. New chats will use this folder; existing chats keep their original context.');
 }
 
 function workspaceCardMenu(ws) {
@@ -2826,17 +2915,17 @@ function initResizing() {
     });
 
     const saved = localStorage.getItem(storageKey);
-    if (saved) els.app.style.setProperty(varName, saved);
+    if (saved) els.app.style.setProperty(varName, Math.max(min, Math.min(max, parseFloat(saved) || def)) + 'px');
   };
 
-  setup($('#resize-ws'), '#sidebar', '--ws-w', 'mux.ui.wsWidth', 180, 560, 264, 1);
+  setup($('#resize-ws'), '#sidebar', '--ws-w', 'mux.ui.wsWidth', 240, 560, 264, 1);
   setup($('#resize-fs'), '#files', '--fs-w', 'mux.ui.fsWidth', 220, 640, 300, -1);
 }
 
 /* ---------------- modal ---------------- */
 
 function openModal() {
-  els.modalName.value = `workspace ${state.workspaces.length + 1}`;
+  els.modalName.value = `Project ${state.workspaces.length + 1}`;
   els.modalDir.value = state.home || '';
   els.modalWrap.classList.remove('hidden');
   requestBrowserSync();
@@ -2851,7 +2940,7 @@ function closeModal() {
 }
 
 function submitModal() {
-  const name = els.modalName.value.trim() || `workspace ${state.workspaces.length + 1}`;
+  const name = els.modalName.value.trim() || `Project ${state.workspaces.length + 1}`;
   const cwd = els.modalDir.value.trim() || state.home;
   closeModal();
   const ws = createWorkspace({ name, cwd });
@@ -2873,7 +2962,7 @@ function renderKeybindings() {
   const list = $('#keybinding-list');
   if (!list) return;
   list.replaceChildren();
-  for (const action of KEYBINDING_ACTIONS) {
+  for (const action of KEYBINDING_ACTIONS.filter(item => item.id !== 'clearTerminal')) {
     const row = document.createElement('div');
     row.className = 'keybinding-row';
     const label = document.createElement('span');
@@ -2889,6 +2978,52 @@ function renderKeybindings() {
   }
 }
 
+let availableSystemFonts = [];
+let importedChatFonts = [];
+function renderFontOptions() {
+  const select = $('#setting-chat-font');
+  if (!select) return;
+  select.replaceChildren(new Option('System default', ''));
+  if (importedChatFonts.length) {
+    const group = document.createElement('optgroup'); group.label = 'Imported fonts';
+    for (const font of importedChatFonts) group.append(new Option(font.name, 'import:' + font.id));
+    select.append(group);
+  }
+  if (availableSystemFonts.length) {
+    const group = document.createElement('optgroup'); group.label = 'Installed fonts';
+    for (const family of availableSystemFonts) group.append(new Option(family, family));
+    select.append(group);
+  }
+  if (appSettings.chatFont && ![...select.options].some(option => option.value === appSettings.chatFont)) select.append(new Option(appSettings.chatFont.startsWith('import:') ? 'Imported font unavailable' : appSettings.chatFont, appSettings.chatFont));
+  select.value = appSettings.chatFont;
+}
+async function registerImportedFont(font) {
+  const bytes = Uint8Array.from(atob(font.data), character => character.charCodeAt(0));
+  const face = new FontFace('Synthesis imported ' + font.id, bytes.buffer);
+  await face.load(); document.fonts.add(face);
+  return { id: font.id, name: font.name };
+}
+let systemFontsLoaded = false;
+async function loadAvailableFonts(includeSystem = true) {
+  try {
+    const result = await window.mux.fonts.list(includeSystem);
+    if (includeSystem) { availableSystemFonts = result.system; systemFontsLoaded = true; }
+    const known = new Set(importedChatFonts.map(font => font.id));
+    importedChatFonts.push(...(await Promise.all(result.imported.filter(font => !known.has(font.id)).map(font => registerImportedFont(font).catch(() => null)))).filter(Boolean));
+    renderFontOptions(); applySettings();
+  } catch { $('#font-settings-status').textContent = 'Could not load the installed fonts.'; }
+}
+async function importChatFont() {
+  const status = $('#font-settings-status'); status.textContent = '';
+  try {
+    const result = await window.mux.fonts.import();
+    if (result.canceled) return;
+    if (result.error) { status.textContent = result.error; return; }
+    const font = await registerImportedFont(result.font); importedChatFonts.push(font);
+    updateAppSettings({ chatFont: 'import:' + font.id }); status.textContent = `Imported ${font.name}.`;
+  } catch { status.textContent = 'That font could not be loaded. Try a different font file.'; }
+}
+
 function renderSettings() {
   const customColor = $('#setting-accent-custom');
   if (!customColor) return;
@@ -2898,6 +3033,9 @@ function renderSettings() {
     swatch.classList.toggle('selected', selected);
     swatch.setAttribute('aria-pressed', String(selected));
   });
+  for (const [id, key] of Object.entries({ 'chat-background': 'chatBackground', 'sidebar-color': 'sidebarColor', 'bubble-color': 'bubbleColor', 'chat-text': 'chatText' })) $('#setting-' + id).value = appSettings[key];
+  $('#setting-chat-font-size').value = String(appSettings.chatFontSize);
+  renderFontOptions();
   $('#setting-font-size').value = String(appSettings.fontSize);
   $('#setting-cursor-style').value = appSettings.cursorStyle;
   $('#setting-cursor-blink').checked = appSettings.cursorBlink;
@@ -2907,6 +3045,7 @@ function renderSettings() {
 }
 
 function openSettings(tab = 'appearance') {
+  if (!systemFontsLoaded) loadAvailableFonts();
   renderSettings();
   setSettingsTab(tab);
   $('#settings-backdrop').classList.remove('hidden');
@@ -2981,7 +3120,7 @@ function runShortcutAction(actionId) {
   const ws = activeWs();
   switch (actionId) {
     case 'newTab':
-      if (ws) { const pane = ws.panes[ws.activePaneIdx]; addPaneTab(ws, pane, { type: pane.type }); }
+      if (ws) { const pane = ws.panes[ws.activePaneIdx]; addPaneTab(ws, pane, { type: pane.type === 'browser' ? 'browser' : 'chat' }); }
       break;
     case 'closeTab':
       if (ws) { const pane = ws.panes[ws.activePaneIdx]; closePaneTab(ws, pane, pane.activeTab); }
@@ -2991,7 +3130,8 @@ function runShortcutAction(actionId) {
       if (ws) {
         const pane = ws.panes[ws.activePaneIdx];
         const step = actionId === 'nextTab' ? 1 : -1;
-        activateTab(ws, pane, pane.tabs[(pane.tabs.indexOf(pane.activeTab) + step + pane.tabs.length) % pane.tabs.length]);
+        const tabs = pane.tabs.filter((tab) => tab.type !== 'terminal');
+        if (tabs.length) activateTab(ws, pane, tabs[(tabs.indexOf(pane.activeTab) + step + tabs.length) % tabs.length]);
       }
       break;
     case 'settings': openSettings(); break;
@@ -3087,6 +3227,10 @@ $('#accent-presets').addEventListener('click', (e) => {
   if (swatch) updateAppSettings({ accentColor: swatch.dataset.accent });
 });
 $('#setting-accent-custom').addEventListener('change', (e) => updateAppSettings({ accentColor: e.target.value }));
+for (const [id, key] of Object.entries({ 'chat-background': 'chatBackground', 'sidebar-color': 'sidebarColor', 'bubble-color': 'bubbleColor', 'chat-text': 'chatText' })) $('#setting-' + id).addEventListener('input', event => updateAppSettings({ [key]: event.target.value }));
+$('#setting-chat-font').addEventListener('change', event => updateAppSettings({ chatFont: event.target.value }));
+$('#setting-chat-font-size').addEventListener('change', event => updateAppSettings({ chatFontSize: Number(event.target.value) }));
+$('#setting-import-font').addEventListener('click', importChatFont);
 $('#setting-font-size').addEventListener('change', (e) => updateAppSettings({ fontSize: Number(e.target.value) }));
 $('#setting-cursor-style').addEventListener('change', (e) => updateAppSettings({ cursorStyle: e.target.value }));
 $('#setting-cursor-blink').addEventListener('change', (e) => updateAppSettings({ cursorBlink: e.target.checked }));
@@ -3111,6 +3255,65 @@ $('#settings-reset').addEventListener('click', () => {
 });
 
 $('#add-btn').addEventListener('click', openModal);
+$('#workspace-search').addEventListener('input', renderList);
+const projectFilterButton = $('#workspace-sort');
+const projectFilterPanel = document.createElement('section');
+projectFilterPanel.className = 'project-filter-panel';
+projectFilterPanel.hidden = true;
+projectFilterPanel.setAttribute('role', 'dialog');
+projectFilterPanel.setAttribute('aria-label', 'Filter chats by project');
+projectFilterPanel.innerHTML = `<label class="project-filter-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg><input type="search" placeholder="Search projects…" aria-label="Search projects" autocomplete="off"></label><div class="project-filter-options" role="group" aria-label="Projects"></div><div class="project-filter-footer"><button type="button" class="project-filter-archive"></button><button type="button" class="project-filter-order"></button></div>`;
+document.body.appendChild(projectFilterPanel);
+const projectFilterSearch = projectFilterPanel.querySelector('input');
+function closeProjectFilter() {
+  projectFilterPanel.hidden = true;
+  projectFilterButton.setAttribute('aria-expanded', 'false');
+  requestBrowserSync();
+}
+function renderProjectFilter() {
+  const list = projectFilterPanel.querySelector('.project-filter-options');
+  list.replaceChildren();
+  const query = projectFilterSearch.value.trim().toLocaleLowerCase();
+  const options = [{ id: 'all', label: 'All projects' }, ...state.workspaces.filter(ws => !isScratch(ws)).map(ws => ({ id: ws.id, label: ws.name }))];
+  if (conversationRows().some(row => isScratch(row.ws))) options.push({ id: 'scratch', label: 'No project' });
+  for (const option of options.filter(item => item.id === 'all' || item.label.toLocaleLowerCase().includes(query))) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'project-filter-option'; button.setAttribute('aria-pressed', String(option.id === projectFilter));
+    const icon = document.createElement('span'); icon.className = 'project-filter-icon'; icon.innerHTML = conversationProjectIcon(option.id === 'scratch');
+    const label = document.createElement('span'); label.className = 'project-filter-label'; label.textContent = option.label;
+    const check = document.createElement('span'); check.className = 'project-filter-check'; check.textContent = option.id === projectFilter ? '✓' : '';
+    button.append(icon, label, check);
+    button.addEventListener('click', () => { projectFilter = option.id; projectFilterButton.classList.toggle('filter-active', projectFilter !== 'all'); closeProjectFilter(); renderList(); projectFilterButton.focus(); });
+    list.appendChild(button);
+  }
+  projectFilterPanel.querySelector('.project-filter-archive').textContent = showArchivedChats ? 'Show active chats' : 'Show archived chats';
+  projectFilterPanel.querySelector('.project-filter-order').textContent = workspaceSortAlphabetically ? 'Sort by recent' : 'Sort by title';
+}
+projectFilterButton.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (!projectFilterPanel.hidden) { closeProjectFilter(); return; }
+  hideMenu(); projectFilterSearch.value = ''; renderProjectFilter();
+  projectFilterPanel.hidden = false;
+  const rect = projectFilterButton.getBoundingClientRect();
+  projectFilterPanel.style.left = Math.max(8, Math.min(rect.left - 38, window.innerWidth - projectFilterPanel.offsetWidth - 8)) + 'px';
+  projectFilterPanel.style.top = Math.min(rect.bottom + 8, window.innerHeight - projectFilterPanel.offsetHeight - 8) + 'px';
+  projectFilterButton.setAttribute('aria-expanded', 'true');
+  requestBrowserSync(); projectFilterSearch.focus();
+});
+projectFilterSearch.addEventListener('input', renderProjectFilter);
+projectFilterPanel.querySelector('.project-filter-archive').addEventListener('click', () => { showArchivedChats = !showArchivedChats; closeProjectFilter(); renderList(); });
+projectFilterPanel.querySelector('.project-filter-order').addEventListener('click', () => { workspaceSortAlphabetically = !workspaceSortAlphabetically; closeProjectFilter(); renderList(); });
+projectFilterPanel.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeProjectFilter(); projectFilterButton.focus(); } });
+document.addEventListener('pointerdown', event => { if (!projectFilterPanel.hidden && !projectFilterPanel.contains(event.target) && !projectFilterButton.contains(event.target)) closeProjectFilter(); });
+window.addEventListener('resize', () => { if (!projectFilterPanel.hidden) closeProjectFilter(); });
+$('#workspace-new-chat').addEventListener('click', (event) => {
+  event.stopPropagation();
+  const button = event.currentTarget; const rect = button.getBoundingClientRect();
+  const items = [{ label: 'No project — new scratch chat', action: async () => {
+    const cwd = await window.mux.chat.createScratch();
+    const ws = createWorkspace({ name: 'No project', cwd }); setScratch(ws, true); setActive(ws.id); renderList();
+  } }, 'sep', ...state.workspaces.filter(ws => !isScratch(ws)).map(ws => ({ label: ws.name, action: () => { setActive(ws.id); addPaneTab(ws, ws.panes[ws.activePaneIdx], { type: 'chat' }); } })), 'sep', { label: 'New project…', action: openModal }];
+  showMenu(rect.left, rect.bottom + 4, items);
+});
 $('#history-close').addEventListener('click', closeSavedHistory);
 $('#history-backdrop').addEventListener('click', (e) => {
   if (e.target === $('#history-backdrop')) closeSavedHistory();
@@ -3218,6 +3421,7 @@ window.addEventListener('keydown', (e) => {
       if (ws) focusPaneSurface(ws.panes[ws.activePaneIdx]);
     }
     hideTip();
+    if (!menuWasOpen) activeWs()?.panes[activeWs().activePaneIdx]?.activeTab?.abortChat?.();
     return;
   }
   if (!$('#history-backdrop').classList.contains('hidden') || !$('#settings-backdrop').classList.contains('hidden') || !els.modalWrap.classList.contains('hidden')) return;
@@ -3272,6 +3476,7 @@ window.addEventListener('beforeunload', () => {
 
 (async function boot() {
   applySettings();
+  if (appSettings.chatFont.startsWith('import:')) loadAvailableFonts(false);
   state.home = await window.mux.app.home();
   els.statusShell.textContent = await window.mux.app.shellName();
   const limits = await window.mux.fs.limits().catch(() => null);

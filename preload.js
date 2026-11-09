@@ -1,9 +1,11 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('mux', {
+  fonts: { list: (includeSystem) => ipcRenderer.invoke('fonts:list', includeSystem), import: () => ipcRenderer.invoke('fonts:import') },
   chat: {
     start: (id, cwd, sessionPath) => ipcRenderer.invoke('chat:start', { id, cwd, sessionPath }),
     sessions: (cwd) => ipcRenderer.invoke('chat:sessions', cwd),
+    createScratch: () => ipcRenderer.invoke('chat:createScratch'),
     command: (id, message) => ipcRenderer.send('chat:command', { id, message }),
     stop: (id) => ipcRenderer.send('chat:stop', id),
     onEvent: (id, cb) => { const h = (_e, m) => { if (m.id === id) cb(m.event); }; ipcRenderer.on('chat:event', h); return () => ipcRenderer.removeListener('chat:event', h); },

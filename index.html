@@ -24,17 +24,16 @@
         <span class="rail-label">Workspaces</span>
       </div>
       <div class="panel">
-        <div class="side-head">
-          <span>Workspaces</span>
-          <div class="head-actions">
-            <button id="add-btn" class="icon-btn" data-tip="New workspace (⌘T)">+</button>
-            <button id="ws-collapse" class="icon-btn" data-tip="Hide workspaces">«</button>
-          </div>
+        <div class="workspace-toolbar">
+          <label class="workspace-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg><input id="workspace-search" type="search" placeholder="Search" aria-label="Search chats" autocomplete="off" /></label>
+          <button id="workspace-sort" class="workspace-tool" aria-label="Filter chats by project" aria-haspopup="dialog" aria-expanded="false" data-tip="Filter chats by project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M6 12h12M9 18h6"/></svg></button>
+          <button id="add-btn" class="workspace-tool" aria-label="New project" data-tip="New project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2h7A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5zM12 10v6M9 13h6"/></svg></button>
+          <button id="workspace-new-chat" class="workspace-tool" aria-label="New chat" data-tip="New chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6M10 14l1-4 7-7a2 2 0 0 1 3 3l-7 7z"/></svg></button>
         </div>
         <div id="workspace-list"></div>
         <div class="side-foot">
           <button id="settings-btn" class="side-settings-btn" data-tip="Settings (⌘,)" aria-label="Open settings"><span aria-hidden="true">⚙</span><span>Settings</span></button>
-          <span id="ws-count">0 sessions</span>
+          <span id="ws-count">0 workspaces</span><button id="ws-collapse" class="icon-btn" data-tip="Hide workspaces" aria-label="Hide workspaces">«</button>
         </div>
       </div>
     </aside>
@@ -82,10 +81,7 @@
       <span id="status-cwd" class="mono dim"></span>
     </div>
     <div class="status-right">
-      <span id="status-shell">zsh</span>
-      <span class="sep">·</span>
-      <span>UTF-8</span>
-      <span class="sep">·</span>
+      <span id="status-shell" hidden></span>
       <span id="status-pts">1 pty</span>
     </div>
   </footer>
@@ -93,11 +89,11 @@
   <!-- NEW WORKSPACE MODAL -->
   <div id="modal-backdrop" class="hidden">
     <div id="modal">
-      <h2>New workspace</h2>
+      <h2>New project</h2>
       <label>Name
         <input id="modal-name" type="text" spellcheck="false" placeholder="e.g. api refactor" />
       </label>
-      <label>Start directory
+      <label>Project folder
         <div class="input-row">
           <input id="modal-dir" type="text" spellcheck="false" />
           <button id="modal-browse" class="ghost-btn" data-tip="Choose a directory">Browse…</button>
@@ -134,7 +130,7 @@
       <header class="settings-header">
         <div>
           <h2 id="settings-title">Settings</h2>
-          <p>Personalise your terminal workspace</p>
+          <p>Personalise your conversations and workspace</p>
         </div>
         <button id="settings-close" class="settings-close" aria-label="Close settings">×</button>
       </header>
@@ -150,7 +146,7 @@
             <div class="settings-row">
               <div class="settings-copy">
                 <label>Accent colour</label>
-                <p>Used for highlights, controls, and the terminal cursor.</p>
+                <p>Used for pane highlights and controls.</p>
               </div>
               <div class="accent-control">
                 <div id="accent-presets" class="accent-presets">
@@ -166,7 +162,14 @@
                 </label>
               </div>
             </div>
-            <div class="settings-row">
+            <div class="settings-row"><div class="settings-copy"><label for="setting-chat-background">Chat background</label><p>The background behind conversations.</p></div><input id="setting-chat-background" class="settings-color" type="color" /></div>
+            <div class="settings-row"><div class="settings-copy"><label for="setting-sidebar-color">Sidebar</label><p>The background behind your chat list.</p></div><input id="setting-sidebar-color" class="settings-color" type="color" /></div>
+            <div class="settings-row"><div class="settings-copy"><label for="setting-bubble-color">Chat bubbles</label><p>The background of your messages.</p></div><input id="setting-bubble-color" class="settings-color" type="color" /></div>
+            <div class="settings-row"><div class="settings-copy"><label for="setting-chat-text">Chat text</label><p>Text in conversations and the composer.</p></div><input id="setting-chat-text" class="settings-color" type="color" /></div>
+            <div class="settings-row"><div class="settings-copy"><label for="setting-chat-font">Chat font</label><p>Choose an installed font or import a font file.</p></div><div class="font-controls"><select id="setting-chat-font" class="settings-select" aria-label="Chat font"><option value="">System default</option></select><button id="setting-import-font" class="ghost-btn" type="button">Import…</button></div></div>
+            <div class="settings-row"><div class="settings-copy"><label for="setting-chat-font-size">Chat font size</label><p>Size of messages and composer text.</p></div><select id="setting-chat-font-size" class="settings-select"><option value="12">12 px</option><option value="13">13 px</option><option value="14">14 px</option><option value="15">15 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option><option value="22">22 px</option><option value="24">24 px</option></select></div>
+            <p id="font-settings-status" class="font-settings-status" role="status"></p>
+            <div class="settings-row hidden">
               <div class="settings-copy">
                 <label for="setting-font-size">Terminal font size</label>
                 <p>Adjust the text size in every pane.</p>
@@ -180,7 +183,7 @@
                 <option value="18">18 px</option>
               </select>
             </div>
-            <div class="settings-row">
+            <div class="settings-row hidden">
               <div class="settings-copy">
                 <label for="setting-cursor-style">Cursor style</label>
                 <p>Choose the terminal text cursor shape.</p>
@@ -191,7 +194,7 @@
                 <option value="underline">Underline</option>
               </select>
             </div>
-            <div class="settings-row settings-row-last">
+            <div class="settings-row hidden settings-row-last">
               <div class="settings-copy">
                 <label for="setting-cursor-blink">Blinking cursor</label>
                 <p>Animate the cursor in active terminal panes.</p>
@@ -202,7 +205,7 @@
 
           <section class="settings-page hidden" data-settings-page="behavior">
             <div class="settings-section-title">Behavior</div>
-            <div class="settings-row">
+            <div class="settings-row hidden">
               <div class="settings-copy">
                 <label for="setting-scrollback">Scrollback history</label>
                 <p>Lines kept for live scrolling. Use a pane’s options menu to browse saved output.</p>
@@ -218,8 +221,8 @@
             </div>
             <div class="settings-row settings-row-last">
               <div class="settings-copy">
-                <label for="setting-confirm-close">Confirm before closing a session</label>
-                <p>Warn before stopping the processes in a workspace.</p>
+                <label for="setting-confirm-close">Confirm before closing a chat or pane</label>
+                <p>Ask before closing an open chat or pane.</p>
               </div>
               <input id="setting-confirm-close" class="settings-checkbox" type="checkbox" />
             </div>

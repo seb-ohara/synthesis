@@ -4,7 +4,8 @@ const os = require('os');
 const fs = require('fs');
 const fsp = fs.promises;
 const net = require('net');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
+const { randomUUID } = require('crypto');
 
 const stateStore = require('./lib/state-store');
 const { ID_RE } = require('./lib/state-schema');
@@ -34,36 +35,49 @@ let win = null;
 const chatManager = require('./lib/chat-process').createChatManager((id, event) => {
   if (win && !win.isDestroyed()) win.webContents.send('chat:event', { id, event });
 });
-function chatSessions(cwd) {
+async function chatSessions(cwd) {
   const root = path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'sessions');
   const dir = path.join(root, '--' + cwd.replace(/^[/\\]+/, '').replace(/[/\\:]/g, '-') + '--');
   try {
-    return fs.readdirSync(dir).filter(name => name.endsWith('.jsonl')).map(name => {
-      const file = path.join(dir, name);
-      try {
-        const stat = fs.statSync(file);
-        const fd = fs.openSync(file, 'r');
-        const buffer = Buffer.alloc(Math.min(stat.size, 65536));
-        try { fs.readSync(fd, buffer, 0, buffer.length, 0); } finally { fs.closeSync(fd); }
-        let title = '';
-        const lines = buffer.toString('utf8').split('\n');
-        const header = JSON.parse(lines.shift());
-        if (header.type !== 'session' || header.cwd !== cwd) return null;
-        for (const line of lines) { try { const entry = JSON.parse(line); if (entry.type === 'session_info' && entry.name) title = entry.name; else if (!title && entry.type === 'message' && entry.message?.role === 'user') { const c = entry.message.content; title = typeof c === 'string' ? c : (c || []).filter(x => x.type === 'text').map(x => x.text).join(' '); } } catch {} }
-        return { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: stat.mtimeMs };
-      } catch { return null; }
-    }).filter(Boolean).sort((a, b) => b.modified - a.modified).slice(0, 200);
+    const names = (await fsp.readdir(dir)).filter(name => name.endsWith('.jsonl'));
+    const results = [];
+    // Bound the number of open files while keeping disk reads off the UI thread.
+    for (let i = 0; i < names.length; i += 20) {
+      const batch = await Promise.all(names.slice(i, i + 20).map(async name => {
+        const file = path.join(dir, name); let handle;
+        try {
+          handle = await fsp.open(file, 'r'); const stat = await handle.stat();
+          const buffer = Buffer.alloc(Math.min(stat.size, 65536));
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+          const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
+          const header = JSON.parse(lines.shift());
+          if (header.type !== 'session' || header.cwd !== cwd) return null;
+          let title = '';
+          for (const line of lines) { try { const entry = JSON.parse(line); if (entry.type === 'session_info' && entry.name) title = entry.name; else if (!title && entry.type === 'message' && entry.message?.role === 'user') { const c = entry.message.content; title = typeof c === 'string' ? c : (c || []).filter(x => x.type === 'text').map(x => x.text).join(' '); } } catch {} }
+          return { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: stat.mtimeMs };
+        } catch { return null; } finally { if (handle) await handle.close(); }
+      }));
+      results.push(...batch.filter(Boolean));
+    }
+    return results.sort((a, b) => b.modified - a.modified).slice(0, 200);
   } catch { return []; }
 }
+ipcMain.handle('chat:createScratch', () => {
+  const root = path.join(app.getPath('userData'), 'scratch');
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const dir = fs.mkdtempSync(path.join(root, 'chat-'));
+  pathGuard.addAllowedRoot(dir);
+  return dir;
+});
 ipcMain.handle('chat:sessions', (_e, cwd) => {
   const dir = pathGuard.resolveAllowed(cwd);
   return dir ? chatSessions(dir) : [];
 });
-ipcMain.handle('chat:start', (_e, { id, cwd, sessionPath }) => {
+ipcMain.handle('chat:start', async (_e, { id, cwd, sessionPath }) => {
   if (!validSessionId(id)) return { ok: false, error: 'Invalid chat ID' };
   const dir = pathGuard.resolveAllowed(cwd);
   if (!dir) return { ok: false, error: 'Workspace folder is unavailable' };
-  if (sessionPath && !chatSessions(dir).some(s => s.path === sessionPath)) return { ok: false, error: 'Saved chat not found in this workspace' };
+  if (sessionPath && !(await chatSessions(dir)).some(s => s.path === sessionPath)) return { ok: false, error: 'Saved chat not found in this workspace' };
   try { chatManager.start(id, dir, sessionPath); return { ok: true }; }
   catch (error) { return { ok: false, error: error.message }; }
 });
@@ -446,6 +460,41 @@ ipcMain.on('browser:dispose', (_e, { id }) => browserManager.dispose(id));
 
 /* ---------------- App helpers ---------------- */
 
+const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+const MAX_FONT_BYTES = 15 * 1024 * 1024;
+function importedFontDir() { return path.join(app.getPath('userData'), 'fonts'); }
+async function readImportedFont(name) {
+  if (!/^[a-f0-9-]{36}--[^/\\]+\.(ttf|otf|woff2?)$/i.test(name)) return null;
+  const file = path.join(importedFontDir(), name);
+  const stat = await fsp.stat(file);
+  if (!stat.isFile() || stat.size > MAX_FONT_BYTES) return null;
+  return { id: name, name: name.slice(38).replace(/\.(ttf|otf|woff2?)$/i, ''), data: (await fsp.readFile(file)).toString('base64') };
+}
+ipcMain.handle('fonts:list', async (_event, includeSystem = true) => {
+  let imported = [];
+  try { const names = await fsp.readdir(importedFontDir()); imported = (await Promise.all(names.map(name => readImportedFont(name).catch(() => null)))).filter(Boolean); } catch {}
+  const system = !includeSystem ? [] : await new Promise(resolve => {
+    execFile('/usr/sbin/system_profiler', ['SPFontsDataType', '-json'], { maxBuffer: 32 * 1024 * 1024, timeout: 30000 }, (error, stdout) => {
+      if (error) return resolve([]);
+      try { const records = JSON.parse(stdout).SPFontsDataType || []; resolve([...new Set(records.filter(font => font.enabled !== 'no').flatMap(font => (font.typefaces || []).filter(face => face.enabled !== 'no' && typeof face.family === 'string').map(face => face.family)))].sort((a, b) => a.localeCompare(b))); } catch { resolve([]); }
+    });
+  });
+  return { system, imported };
+});
+ipcMain.handle('fonts:import', async () => {
+  const result = await dialog.showOpenDialog(win, { title: 'Import a font', properties: ['openFile'], filters: [{ name: 'Font files', extensions: ['ttf', 'otf', 'woff', 'woff2'] }] });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  try {
+    const source = result.filePaths[0], ext = path.extname(source).toLowerCase();
+    const stat = await fsp.stat(source);
+    if (!FONT_EXTENSIONS.has(ext) || !stat.isFile() || stat.size === 0 || stat.size > MAX_FONT_BYTES) return { error: 'Choose a font file smaller than 15 MB.' };
+    const display = path.basename(source, path.extname(source)).replace(/[^a-z0-9 _.-]/gi, '_').slice(0, 100) || 'Imported font';
+    const name = randomUUID() + '--' + display + ext;
+    await fsp.mkdir(importedFontDir(), { recursive: true, mode: 0o700 });
+    await fsp.copyFile(source, path.join(importedFontDir(), name), fs.constants.COPYFILE_EXCL);
+    return { font: await readImportedFont(name) };
+  } catch { return { error: 'Could not import that font file.' }; }
+});
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.handle('app:shell', () => path.basename(SHELL));
 ipcMain.handle('app:allowRoot', (_e, root) => {
