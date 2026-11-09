@@ -1,0 +1,39 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { _electron } = require('playwright');
+const ROOT = path.resolve(__dirname, '../..');
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a+S0AAAAASUVORK5CYII=';
+
+test('pasted image is previewed, submitted to Pi, and restored with the message', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-paste-test-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.waitForSelector('.ws-view.active .chat-body');
+  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-model-trigger').disabled, null, { timeout: 30000 });
+  const weights = await page.evaluate(() => ['.chat-model-trigger', '.chat-reasoning-trigger'].map(selector => getComputedStyle(document.querySelector(selector)).fontWeight));
+  assert.deepEqual(weights, ['400', '400']);
+  const tabId = await page.locator('.ws-view.active .chat-body').evaluate(el => el.id.slice('panel-'.length));
+  await app.evaluate(({ ipcMain }) => { globalThis.__pastePrompts = []; ipcMain.removeAllListeners('chat:command'); ipcMain.on('chat:command', (_event, payload) => { if (payload.message.type === 'prompt') globalThis.__pastePrompts.push(payload.message); }); });
+  await page.locator('.ws-view.active textarea').evaluate((input, base64) => {
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const data = new DataTransfer(); data.items.add(new File([bytes], 'image.png', { type: 'image/png' }));
+    input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+  }, PNG);
+  await page.waitForSelector('.chat-image-attachment img');
+  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-send').disabled);
+  await page.locator('.ws-view.active .chat-send').click();
+  await page.waitForFunction(() => document.querySelector('.chat-message.user .chat-message-image')?.complete);
+  const prompts = await app.evaluate(() => globalThis.__pastePrompts);
+  assert.equal(prompts.length, 1); assert.equal(prompts[0].images[0].type, 'image');
+  assert.equal(prompts[0].images[0].mimeType, 'image/png'); assert.equal(prompts[0].images[0].data, PNG);
+  await app.evaluate(({ BrowserWindow }, { tabId, png }) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id: tabId, event: { type: 'response', command: 'get_messages', success: true, data: { messages: [{ role: 'user', content: [{ type: 'text', text: 'Image question' }, { type: 'image', mimeType: 'image/png', data: png }] }] } } }), { tabId, png: PNG });
+  await page.waitForFunction(() => document.querySelector('.chat-message.user .chat-message-image')?.naturalWidth === 1);
+  assert.equal(await page.locator('.chat-image-attachment').count(), 0);
+  assert.deepEqual(errors, []);
+});

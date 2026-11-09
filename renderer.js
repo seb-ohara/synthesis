@@ -3,6 +3,7 @@
 
 const $ = (sel) => document.querySelector(sel);
 const FILES_VIEW_STORAGE_KEY = 'synthesis.files.viewMode';
+const MAX_PANE_TABS = 1024;
 
 const els = {
   app: $('#app'),
@@ -118,7 +119,7 @@ const DEFAULT_SETTINGS = {
   bubbleColor: '#29383b',
   chatText: '#e9e9eb',
   chatFont: '',
-  chatFontSize: 13,
+  chatFontSize: 14,
   fontSize: 12,
   cursorStyle: 'bar',
   cursorBlink: true,
@@ -134,7 +135,7 @@ const KEYBINDING_ACTIONS = [
   { id: 'previousTab', label: 'Previous tab' },
   { id: 'newSession', label: 'New project' },
   { id: 'closeSession', label: 'Close project' },
-  { id: 'openFiles', label: 'Open file or folder' },
+  { id: 'openFiles', label: 'Toggle Git panel' },
   { id: 'splitRight', label: 'Split pane right' },
   { id: 'splitDown', label: 'Split pane down' },
   { id: 'browserRight', label: 'Open browser split right' },
@@ -210,7 +211,7 @@ function loadSettings() {
     ...Object.fromEntries(['chatBackground', 'sidebarColor', 'bubbleColor', 'chatText'].map(key => [key, /^#[0-9a-f]{6}$/i.test(saved[key] || '') ? saved[key] : DEFAULT_SETTINGS[key]])),
     fontSize,
     chatFont: typeof saved.chatFont === 'string' && saved.chatFont.length < 300 ? saved.chatFont : '',
-    chatFontSize: [12, 13, 14, 15, 16, 18, 20, 22, 24].includes(Number(saved.chatFontSize)) ? Number(saved.chatFontSize) : 13,
+    chatFontSize: [12, 13, 14, 15, 16, 18, 20, 22, 24].includes(Number(saved.chatFontSize)) ? Number(saved.chatFontSize) : 14,
     cursorStyle: CURSOR_STYLES.includes(saved.cursorStyle) ? saved.cursorStyle : DEFAULT_SETTINGS.cursorStyle,
     cursorBlink: typeof saved.cursorBlink === 'boolean' ? saved.cursorBlink : DEFAULT_SETTINGS.cursorBlink,
     scrollback,
@@ -611,13 +612,33 @@ function renderNode(node, ws) {
 function refreshView(ws) {
   ws.view.innerHTML = '';
   ws.view.className = 'ws-view' + (ws.id === state.activeId ? ' active' : '');
-  ws.view.appendChild(renderNode(ws.tree, ws));
+  const root = renderNode(ws.tree, ws);
+  // A former split child may still carry its fractional flex weight.
+  root.style.removeProperty('flex');
+  ws.view.appendChild(root);
   const pane = ws.panes[ws.activePaneIdx];
   ws.panes.forEach((p) => {
     p.tile.classList.toggle('active', p === pane);
     const close = p.tile.querySelector('.pane-close');
     if (close) close.disabled = ws.panes.length <= 1;
   });
+}
+
+// Split layouts are a temporary way to arrange surfaces, not part of a chat.
+// Keep the live tabs (including running agents) while returning to one pane.
+function flattenWorkspacePanes(ws, target) {
+  if (!target || !ws.panes.includes(target) || ws.panes.length <= 1) return;
+  for (const pane of [...ws.panes]) {
+    if (pane === target) continue;
+    for (const tab of pane.tabs) {
+      if (tab.syncObserver) { tab.syncObserver.unobserve(pane.tile); tab.syncObserver.observe(target.tile); }
+      tab.owner = target; tab.tile = target.tile; target.tabs.push(tab); target.tile.appendChild(tab.body);
+      tab.body.classList.toggle('tab-hidden', tab !== target.activeTab);
+    }
+    pane.tabs = []; pane.layoutObserver?.disconnect(); pane.tile.remove();
+  }
+  ws.panes = [target]; ws.activePaneIdx = 0; ws.tree = { type: 'leaf', pane: target };
+  updatePaneSurfaceChrome(target); renderPaneTabs(target); refreshView(ws); syncBrowserBounds();
 }
 
 function fitWorkspace(ws) {
@@ -641,7 +662,7 @@ function focusPaneSurface(pane) {
   if (!pane) return;
   if (pane.type === 'terminal' && pane.term) pane.term.focus();
   else if (pane.type === 'browser' && pane.urlInput) pane.urlInput.focus();
-  else if (pane.type === 'chat') pane.body.querySelector('textarea')?.focus();
+  else if (pane.type === 'chat') { pane.activeTab?.startChat?.(); pane.startChat?.(); pane.body.querySelector('textarea')?.focus(); }
 }
 
 function splitPane(ws, pane, dir, type = 'chat') {
@@ -1210,7 +1231,7 @@ function syncBrowserBounds() {
   const active = activeWs();
   const overlayOpen = ['#settings-backdrop', '#history-backdrop', '#modal-backdrop']
     .some((sel) => { const el = $(sel); return el && !el.classList.contains('hidden'); })
-    || menuEl.classList.contains('visible') || !projectFilterPanel.hidden;
+    || menuEl.classList.contains('visible') || !projectFilterPanel.hidden || !$('#git-panel').hidden;
   for (const ws of state.workspaces) {
     for (const pane of workspaceTabs(ws)) {
       if (pane.type !== 'browser' || !pane.viewport) continue;
@@ -1271,7 +1292,7 @@ window.mux.app.onWindowGeometryChange(() => {
 function surfaceId(pane) { return (pane.activeTab || pane).id; }
 function workspaceTabs(ws) { return ws.panes.flatMap((pane) => pane.tabs); }
 
-let draggedTab = null;
+let draggedTab = null, draggedConversation = null;
 
 function finishTabDrag() {
   draggedTab = null;
@@ -1284,7 +1305,7 @@ function finishTabDrag() {
 
 function installTabDropTarget(element, pane, getIndex) {
   const accepts = () => draggedTab && draggedTab.owner.ws === pane.ws
-    && (draggedTab.owner === pane || pane.tabs.length < 32);
+    && (draggedTab.owner === pane || pane.tabs.length < MAX_PANE_TABS);
   const dropIndex = (event) => {
     if (!getIndex) return pane.tabs.length;
     const rect = element.getBoundingClientRect();
@@ -1318,11 +1339,12 @@ function installTabDropTarget(element, pane, getIndex) {
 function movePaneTab(tab, target, index, focus = true) {
   const source = tab.owner;
   const ws = source.ws;
-  if (ws.closingPane || ws !== target.ws || (source !== target && target.tabs.length >= 32)) return;
+  if (ws.closingPane || target.ws.closingPane || (source !== target && target.tabs.length >= MAX_PANE_TABS)) return;
   const from = source.tabs.indexOf(tab);
   if (from < 0) return;
   hidePaneBanner(tab);
   source.tabs.splice(from, 1);
+  if (source !== target && !source.tabs.length) addPaneTab(ws, source, { type: 'chat' }, false);
   if (source === target && from < index) index -= 1;
   target.tabs.splice(Math.max(0, Math.min(index, target.tabs.length)), 0, tab);
   if (source !== target) {
@@ -1350,8 +1372,8 @@ function movePaneTab(tab, target, index, focus = true) {
       refreshView(ws);
     }
   }
-  activateTab(ws, target, tab, focus);
-  if (source !== target) afterLayout(ws, target);
+  activateTab(target.ws, target, tab, focus);
+  if (source !== target) { afterLayout(ws); afterLayout(target.ws, target); }
 }
 
 function tabMoveMenu(pane, tab) {
@@ -1361,7 +1383,7 @@ function tabMoveMenu(pane, tab) {
     { label: 'Move tab right', disabled: index === pane.tabs.length - 1, action: () => movePaneTab(tab, pane, index + 2) },
     ...pane.ws.panes.filter((target) => target !== pane).map((target) => ({
       label: `Move to pane ${pane.ws.panes.indexOf(target) + 1}`,
-      disabled: target.tabs.length >= 32,
+      disabled: target.tabs.length >= MAX_PANE_TABS,
       action: () => movePaneTab(tab, target, target.tabs.length),
     })),
     'sep',
@@ -1446,6 +1468,7 @@ function activateTab(ws, pane, tab, focus = true) {
   if (!pane.tabs.includes(tab)) return;
   if (pane.activeTab) hidePaneBanner(pane.activeTab);
   pane.activeTab = tab;
+  if (ws.id === state.activeId) tab.startChat?.();
   pane.tabs.forEach((item) => item.body.classList.toggle('tab-hidden', item !== tab));
   updatePaneSurfaceChrome(pane);
   setPaneTitle(tab, tab.title);
@@ -1458,12 +1481,15 @@ function activateTab(ws, pane, tab, focus = true) {
   requestAnimationFrame(() => { fitSafely(tab); if (focus && ws.id === state.activeId) focusPaneSurface(tab); });
   renderChrome();
   renderList();
+  refreshGitPanel();
   saveWorkspaces();
 }
 
 function initChatPane(ws, tab) {
+  const chatCwd = tab.chatCwd || ws.cwd;
+  const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything about this workspace…"></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 10.5l5-5a3 3 0 0 1 4.2 4.2l-6.7 6.7a4.5 4.5 0 0 1-6.4-6.4l6.7-6.7a2 2 0 0 1 2.8 2.8L6 12.7"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5.5 8.5 10 4l4.5 4.5"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5.5 8.5 10 4l4.5 4.5"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1531,14 +1557,46 @@ function initChatPane(ws, tab) {
   tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissReasoning));
   const attachmentList = form.querySelector('.chat-attachments');
   const attachButton = form.querySelector('.chat-attach');
-  let attachments = [], currentReasoning = 'off';
+  let attachments = [], pastedImages = [], pendingImages = 0, currentReasoning = 'off';
+  const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+  const maxImageBytes = 10 * 1024 * 1024;
   let currentModel = '', changing = false;
   function renderAttachments() {
-    attachmentList.replaceChildren(); attachmentList.hidden = !attachments.length;
+    attachmentList.replaceChildren(); attachmentList.hidden = !attachments.length && !pastedImages.length && !pendingImages;
     attachments.forEach(path => { const chip = document.createElement('span'); chip.className = 'chat-attachment'; const name = document.createElement('span'); name.textContent = path.split('/').filter(Boolean).pop() || path; name.title = path; const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', 'Remove ' + name.textContent); remove.addEventListener('click', () => { attachments = attachments.filter(item => item !== path); renderAttachments(); update(); }); chip.append(name, remove); attachmentList.append(chip); });
+    pastedImages.forEach((item, index) => {
+      const chip = document.createElement('span'); chip.className = 'chat-attachment chat-image-attachment';
+      const thumb = document.createElement('img'); thumb.src = `data:${item.mimeType};base64,${item.data}`; thumb.alt = '';
+      const name = document.createElement('span'); name.textContent = item.name || 'Pasted image';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', 'Remove pasted image ' + (index + 1));
+      remove.addEventListener('click', () => { pastedImages = pastedImages.filter(image => image !== item); renderAttachments(); update(); });
+      chip.append(thumb, name, remove); attachmentList.append(chip);
+    });
+    if (pendingImages) { const note = document.createElement('span'); note.className = 'chat-attachment'; note.textContent = 'Adding image…'; attachmentList.append(note); }
   }
+  input.addEventListener('paste', event => {
+    const items = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file' && imageTypes.has(item.type));
+    if (!items.length) return;
+    // Preserve regular text when a clipboard contains both text and an image.
+    if (![...(event.clipboardData?.items || [])].some(item => item.kind === 'string' && item.type === 'text/plain')) event.preventDefault();
+    for (const item of items) {
+      const file = item.getAsFile(); if (!file) continue;
+      if (!file.size || file.size > maxImageBytes) { add('error', 'Pasted images must be smaller than 10 MB.'); continue; }
+      pendingImages++; renderAttachments(); update();
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (tab.disposed) return;
+        const data = String(reader.result || '').split(',', 2)[1];
+        if (data) pastedImages.push({ type: 'image', mimeType: file.type, data, name: file.name && file.name !== 'image.png' ? file.name : 'Pasted image' });
+        else add('error', 'Could not read the pasted image.');
+      };
+      reader.onerror = () => { if (!tab.disposed) add('error', 'Could not read the pasted image.'); };
+      reader.onloadend = () => { if (!tab.disposed) { pendingImages--; renderAttachments(); update(); } };
+      reader.readAsDataURL(file);
+    }
+  });
   attachButton.addEventListener('click', async () => { const path = await window.mux.app.pickPath(); if (path && !tab.disposed && !attachments.includes(path)) { attachments.push(path); renderAttachments(); update(); } });
-  let streaming = null, busy = false, ready = false, lastSidebarBusy = null;
+  let streaming = null, busy = false, ready = false, lastSidebarBusy = null, turnHasOutput = false, turnHasError = false;
   let turnCount = 0, timerStarted = null, timerInterval = null, timerNode = null, pendingRender = null;
   function formatElapsed(ms) {
     const seconds = Math.floor(ms / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), sec = seconds % 60;
@@ -1562,11 +1620,12 @@ function initChatPane(ws, tab) {
     setChatMeta(key, { durations }); timerStarted = null; timerNode = null;
   }
   tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
-  tab.modified = Date.now();
-  function update() { tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(ws); renderList(); } button.disabled = !ready || busy || changing || (!input.value.trim() && !attachments.length); modelSelect.disabled = !ready || busy || changing; reasoningSelect.disabled = !ready || busy || changing; attachButton.disabled = busy || changing; status.hidden = !busy; }
+  tab.modified = 0;
+  function update() { tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = !ready || busy || changing; reasoningSelect.disabled = !ready || busy || changing; attachButton.disabled = busy || changing; status.hidden = !busy; }
   tab.abortChat = () => { if (busy) { command('abort'); statusText.textContent = 'Stopping…'; } };
-  function add(role, content) {
-    if (!content) return null;
+  function add(role, content, images = []) {
+    if (!content && !images.length) return null;
+    if (busy && role === 'error') turnHasError = true;
     welcome.hidden = true;
     const row = document.createElement('div'); row.className = 'chat-message ' + role;
     const body = document.createElement('div'); body.className = 'chat-message-content';
@@ -1576,45 +1635,50 @@ function initChatPane(ws, tab) {
       const icon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
       copy.innerHTML = icon; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(body.raw || ''); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.title = 'Copied'; copy.setAttribute('aria-label', 'Response copied'); setTimeout(() => { if (copy.isConnected) { copy.innerHTML = icon; copy.title = 'Copy response'; copy.setAttribute('aria-label', 'Copy response'); } }, 2000); } catch { copy.title = 'Copy failed'; copy.setAttribute('aria-label', 'Copy failed'); } }); row.append(copy);
     }
-    messages.append(row); body.raw = content; renderText(body, content); scroll.scrollTop = scroll.scrollHeight; return body;
+    messages.append(row); body.raw = content || ''; renderText(body, content || '');
+    for (const item of images) {
+      if (!imageTypes.has(item.mimeType) || typeof item.data !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data)) continue;
+      const image = document.createElement('img'); image.className = 'chat-message-image'; image.alt = 'Attached image'; image.src = `data:${item.mimeType};base64,${item.data}`; body.append(image);
+    }
+    scroll.scrollTop = scroll.scrollHeight; return body;
   }
   function renderText(el, value) {
-    // Render a safe, useful Markdown subset without interpreting model-supplied HTML.
-    el.replaceChildren();
-    const blocks = String(value).split(/(```[\s\S]*?```)/g);
-    for (const block of blocks) {
-      if (block.startsWith('```')) {
-        const raw = block.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
-        const wrapper = document.createElement('div'); wrapper.className = 'chat-code-block';
-        const pre = document.createElement('pre'); const code = document.createElement('code'); code.textContent = raw; pre.append(code);
-        const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'chat-code-copy'; copy.setAttribute('aria-label', 'Copy code'); copy.title = 'Copy code';
-        const copyIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
-        copy.innerHTML = copyIcon;
-        copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(raw); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.setAttribute('aria-label', 'Code copied'); copy.title = 'Copied'; setTimeout(() => { if (copy.isConnected) { copy.innerHTML = copyIcon; copy.setAttribute('aria-label', 'Copy code'); copy.title = 'Copy code'; } }, 2000); } catch { copy.setAttribute('aria-label', 'Copy failed; select the code to copy'); copy.title = 'Copy failed; select the code to copy'; } });
-        wrapper.append(copy, pre); el.append(wrapper); continue;
-      }
-      for (const line of block.split('\n')) {
-        const heading = line.match(/^(#{1,3})\s+(.*)$/); const list = line.match(/^\s*[-*]\s+(.*)$/);
-        const node = document.createElement(heading ? 'h' + (heading[1].length + 2) : 'div');
-        if (list) node.className = 'chat-list-line';
-        const text = heading ? heading[2] : list ? '•  ' + list[1] : line;
-        for (const part of text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)) { const child = part.startsWith('**') && part.endsWith('**') ? document.createElement('strong') : part.startsWith('`') && part.endsWith('`') ? document.createElement('code') : document.createTextNode(part); if (child.nodeType === 1) child.textContent = part.startsWith('**') ? part.slice(2, -2) : part.slice(1, -1); node.append(child); }
-        if (!text) node.append(document.createElement('br')); el.append(node);
-      }
+    // Markdown is converted locally, then restricted to inert formatting elements.
+    const html = marked.parse(String(value), { gfm: true, breaks: false });
+    el.innerHTML = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_ATTR: ['href', 'title', 'start'], ALLOW_DATA_ATTR: false
+    });
+    for (const link of el.querySelectorAll('a')) {
+      const href = link.getAttribute('href') || '';
+      let valid = false; try { valid = ['http:', 'https:', 'mailto:'].includes(new URL(href).protocol); } catch {}
+      if (!valid) { link.removeAttribute('href'); continue; }
+      link.addEventListener('click', event => { event.preventDefault(); window.mux.app.openChatLink(href); });
     }
+    for (const pre of el.querySelectorAll('pre')) {
+      const raw = pre.querySelector('code')?.textContent || pre.textContent;
+      const wrapper = document.createElement('div'); wrapper.className = 'chat-code-block';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'chat-code-copy'; copy.setAttribute('aria-label', 'Copy code'); copy.title = 'Copy code';
+      const copyIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
+      copy.innerHTML = copyIcon;
+      copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(raw.replace(/\n$/, '')); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.setAttribute('aria-label', 'Code copied'); copy.title = 'Copied'; setTimeout(() => { if (copy.isConnected) { copy.innerHTML = copyIcon; copy.setAttribute('aria-label', 'Copy code'); copy.title = 'Copy code'; } }, 2000); } catch { copy.setAttribute('aria-label', 'Copy failed; select the code to copy'); copy.title = 'Copy failed; select the code to copy'; } });
+      pre.replaceWith(wrapper); wrapper.append(copy, pre);
+    }
+    for (const table of el.querySelectorAll('table')) { const wrapper = document.createElement('div'); wrapper.className = 'chat-table-wrap'; table.replaceWith(wrapper); wrapper.append(table); }
   }
   function textOf(message) { return typeof message.content === 'string' ? message.content : (message.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n'); }
+  function imagesOf(message) { return Array.isArray(message.content) ? message.content.filter(x => x.type === 'image' && imageTypes.has(x.mimeType) && typeof x.data === 'string') : []; }
   function command(type, extra = {}) { window.mux.chat.command(tab.id, { type, ...extra }); }
-  tab.unsubs.push(window.mux.chat.onEvent(tab.id, event => {
+  function onChatEvent(event) {
     if (event.type === 'response' && event.command === 'get_messages') {
       ready = event.success;
-      if (event.success) { messages.replaceChildren(); welcome.hidden = false; turnCount = 0; const durations = chatMeta(tab.sessionPath || tab.id).durations || {}; for (const m of event.data.messages || []) { if (m.role === 'user' || m.role === 'assistant') { const text = textOf(m); add(m.role, text); if (m.role === 'user' && text) { turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]); } if (m.role === 'user' && text) { tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); } if (m.role === 'user' && tab.title === 'Chat' && text) setPaneTitle(tab, text.replace(/\s+/g, ' ').slice(0, 45)); } } }
-      else add('error', event.error || 'Could not load this chat.'); update();
+      if (event.success) { messages.replaceChildren(); welcome.hidden = false; turnCount = 0; const durations = chatMeta(tab.sessionPath || tab.id).durations || {}; for (const m of event.data.messages || []) { if (m.role === 'user' || m.role === 'assistant') { const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []); if (m.role === 'user' && text) { turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]); } if (m.role === 'user' && text) { tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); } if (m.role === 'user' && tab.title === 'Chat' && text) setPaneTitle(tab, chatMeta(tab.sessionPath || tab.id).title || text.replace(/\s+/g, ' ').slice(0, 45)); } else if (m.role === 'toolResult' && m.toolName === 'rich_text') { const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text); } } }
+      else add('error', event.error || 'Could not load this chat.'); update(); renderList();
     } else if (event.type === 'response' && event.command === 'get_available_models') {
       models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); updateModelLabel(); if (!modelMenu.hidden) renderModels();
     } else if (event.type === 'response' && event.command === 'get_state' && event.success) {
       const model = event.data.model; currentModel = model ? modelKey(model) : ''; updateModelLabel();
-      if (event.data.sessionFile && tab.sessionPath !== event.data.sessionFile) { moveChatMeta(tab.id, event.data.sessionFile); tab.sessionPath = event.data.sessionFile; refreshProjectChats(ws); } if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath); currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); saveWorkspaces();
+      if (event.data.sessionFile && tab.sessionPath !== event.data.sessionFile) { moveChatMeta(tab.id, event.data.sessionFile); tab.sessionPath = event.data.sessionFile; refreshProjectChats(projectWorkspace()); } if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath); currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); saveWorkspaces();
     } else if (event.type === 'response' && event.command === 'set_model') {
       changing = false; if (!event.success) { add('error', event.error || 'Could not change model.'); updateModelLabel(); } else { const m = event.data; currentModel = modelKey(m); updateModelLabel(); command('get_state'); command('get_available_thinking_levels'); } update();
     } else if (event.type === 'response' && event.command === 'get_available_thinking_levels') {
@@ -1625,13 +1689,20 @@ function initChatPane(ws, tab) {
     else if (event.type === 'message_start' && event.message?.role === 'assistant') streaming = null;
     else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
       if (!streaming) { streaming = add('assistant', ' '); streaming.raw = ''; }
-      streaming.raw += event.assistantMessageEvent.delta; if (pendingRender === null) pendingRender = requestAnimationFrame(() => { pendingRender = null; if (streaming) { renderText(streaming, streaming.raw); scroll.scrollTop = scroll.scrollHeight; } });
+      if (event.assistantMessageEvent.delta) turnHasOutput = true; streaming.raw += event.assistantMessageEvent.delta; if (pendingRender === null) pendingRender = requestAnimationFrame(() => { pendingRender = null; if (streaming) { renderText(streaming, streaming.raw); scroll.scrollTop = scroll.scrollHeight; } });
     } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const text = textOf(event.message); if (pendingRender !== null) { cancelAnimationFrame(pendingRender); pendingRender = null; } if (streaming) { streaming.raw = text; renderText(streaming, text); } else if (text) add('assistant', text);
+      const text = textOf(event.message); if (text) turnHasOutput = true; if (pendingRender !== null) { cancelAnimationFrame(pendingRender); pendingRender = null; } if (streaming) { streaming.raw = text; renderText(streaming, text); } else if (text) add('assistant', text);
       if (event.message.errorMessage) add('error', event.message.errorMessage); streaming = null;
     } else if (event.type === 'tool_execution_start') { statusText.textContent = 'Thinking'; }
-    else if (event.type === 'tool_execution_end') { statusText.textContent = 'Thinking'; }
-    else if (event.type === 'agent_end' || event.type === 'agent_settled') { busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(ws); }
+    else if (event.type === 'tool_execution_end') {
+      statusText.textContent = 'Thinking';
+      if (event.toolName === 'rich_text') {
+        const text = chatRichText.resultText(event.result);
+        if (event.isError) add('error', text || 'The rich-text response could not be produced.');
+        else if (text) { turnHasOutput = true; add('assistant', text); }
+      }
+    }
+    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
@@ -1639,17 +1710,25 @@ function initChatPane(ws, tab) {
       else { if (event.method === 'notify') add('error', event.message); return; }
       window.mux.chat.command(tab.id, response);
     } else if (event.type === 'process_error' || event.type === 'process_exit') { ready = false; busy = false; finishTimer(); add('error', event.error || 'Pi stopped. Close and reopen this chat to try again.'); update(); }
-  }));
-  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length) || busy || !ready || changing) return; const paths = [...attachments]; const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n'); add('user', message); turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); input.value = ''; attachments = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message }); });
+  }
+  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
   function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
   input.addEventListener('input', () => { resizeInput(); update(); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   update();
-  window.mux.chat.start(tab.id, ws.cwd, tab.sessionPath).then(result => { if (!result.ok) add('error', result.error); });
+  tab.startChat = () => {
+    if (tab.disposed || tab.chatStarted) return;
+    tab.chatStarted = true;
+    tab.unsubs.push(window.mux.chat.onEvent(tab.id, onChatEvent));
+    window.mux.app.allowRoot(chatCwd).then(() => tab.disposed ? null : window.mux.chat.start(tab.id, chatCwd, tab.sessionPath)).then(result => {
+      if (tab.disposed) { window.mux.chat.stop(tab.id); return; }
+      if (!result.ok) { ready = false; add('error', result.error || 'Could not start this chat.'); update(); }
+    }).catch(() => { if (!tab.disposed) { ready = false; add('error', 'Could not start this chat. Close and reopen it to try again.'); update(); } });
+  };
 }
 
 function addPaneTab(ws, pane, opts = {}, activate = true) {
-  if (pane.tabs.length >= 32) return null;
+  if (pane.tabs.length >= MAX_PANE_TABS && !opts.restore) return null;
   const type = ['browser', 'chat'].includes(opts.type) ? opts.type : 'terminal';
   const id = opts.id || 'tab-' + crypto.randomUUID();
   const body = document.createElement('div');
@@ -1668,7 +1747,7 @@ function addPaneTab(ws, pane, opts = {}, activate = true) {
   if (!pane.activeTab) pane.activeTab = tab;
   body.classList.toggle('tab-hidden', pane.activeTab !== tab);
   if (type === 'browser') initBrowserPane(ws, tab, opts);
-  else if (type === 'chat') { tab.sessionPath = opts.sessionPath || ''; initChatPane(ws, tab); }
+  else if (type === 'chat') { tab.sessionPath = opts.sessionPath || ''; tab.chatCwd = opts.chatCwd || ws.cwd; tab.projectId = opts.projectId || ws.id; initChatPane(ws, tab); }
   else initTerminalPane(ws, tab);
   renderPaneTabs(pane);
   if (activate) activateTab(ws, pane, tab);
@@ -1727,6 +1806,15 @@ function createPane(ws, opts = {}) {
   tile.prepend(strip);
   installTabDropTarget(strip, pane);
   installTabDropTarget(tile, pane);
+  tile.addEventListener('dragover', event => { if (!draggedConversation || pane.tabs.length >= MAX_PANE_TABS) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; tile.classList.add('tab-drop-target'); });
+  tile.addEventListener('dragleave', event => { if (!tile.contains(event.relatedTarget)) tile.classList.remove('tab-drop-target'); });
+  tile.addEventListener('drop', event => {
+    const row = draggedConversation; if (!row || pane.tabs.length >= MAX_PANE_TABS) return;
+    event.preventDefault(); event.stopPropagation(); draggedConversation = null; tile.classList.remove('tab-drop-target');
+    if (row.tab) movePaneTab(row.tab, pane, pane.tabs.length);
+    else addPaneTab(pane.ws, pane, { type: 'chat', sessionPath: row.session.path, chatCwd: row.ws.cwd, projectId: row.ws.id });
+    syncBrowserBounds(); renderList();
+  });
   renderPaneTabs(pane);
   updatePaneSurfaceChrome(pane);
   tile.addEventListener('mousedown', () => setActivePane(ws, ws.panes.indexOf(pane)));
@@ -1755,6 +1843,7 @@ function setActivePane(ws, idx, focus = true) {
   ws.panes.forEach((p) => p.tile.classList.toggle('active', p === pane));
   if (focus) focusPaneSurface(pane);
   renderList();
+  refreshGitPanel();
   saveWorkspaces();
   requestBrowserSync();
 }
@@ -1797,7 +1886,7 @@ function layoutToTree(layout, panesById) {
 }
 
 function tabSnapshot(tab, ws) {
-  return tab.type === 'chat' ? { id: tab.id, type: 'chat', ...(tab.sessionPath ? { sessionPath: tab.sessionPath } : {}) } : tab.type === 'browser'
+  return tab.type === 'chat' ? { id: tab.id, type: 'chat', ...(tab.sessionPath && (tab.hasConversation || readLocalMap(OWNED_CHATS_KEY)[tab.sessionPath]) ? { sessionPath: tab.sessionPath } : {}), ...(tab.chatCwd !== ws.cwd ? { chatCwd: tab.chatCwd } : {}), ...(tab.projectId !== ws.id ? { projectId: tab.projectId } : {}) } : tab.type === 'browser'
     ? { id: tab.id, type: 'browser', url: tab.currentUrl || '', zoom: tab.zoom || 1, profileId: 'default' }
     : { id: tab.id, type: 'terminal', cwd: ws.cwd };
 }
@@ -1808,19 +1897,15 @@ function buildSnapshot() {
     activeWorkspaceId: state.activeId,
     workspaces: state.workspaces.map((w) => {
       const activePane = w.panes[w.activePaneIdx] || w.panes[0];
+      // Persist tabs and session identities, but not their temporary split layout.
+      const tabs = w.panes.flatMap(pane => pane.tabs.map(tab => tabSnapshot(tab, w)));
+      const active = activePane.activeTab;
       return {
-        id: w.id,
-        name: w.name,
-        cwd: w.cwd,
-        fileDir: w.fileDir,
-        activePaneId: activePane ? activePane.id : null,
-        panes: w.panes.map((p) => ({
-          ...tabSnapshot(p.activeTab, w), id: p.id,
-          hasTerminal: p.hasTerminal, activeTabId: p.activeTab.id,
-          tabs: p.tabs.map((tab) => tabSnapshot(tab, w)),
-        })),
-
-        layout: treeToLayout(w.tree),
+        id: w.id, name: w.name, cwd: w.cwd, fileDir: w.fileDir,
+        activePaneId: activePane.id,
+        panes: [{ ...tabSnapshot(active, w), id: activePane.id,
+          hasTerminal: w.panes.some(pane => pane.hasTerminal), activeTabId: active.id, tabs }],
+        layout: { paneId: activePane.id },
       };
     }),
   };
@@ -1849,7 +1934,7 @@ function createWorkspace({ name, cwd, id, restore }) {
   const wsId = id || nextWorkspaceId();
   const seqMatch = /^ws-(\d+)$/.exec(wsId);
   if (seqMatch) state.wsSeq = Math.max(state.wsSeq, Number(seqMatch[1]));
-  if (cwd) window.mux.app.allowRoot(cwd); // workspace roots are authorized file roots
+  if (cwd && !restore) window.mux.app.allowRoot(cwd); // Restored project roots are authorized when opened.
   const view = document.createElement('div');
   view.dataset.id = wsId;
   els.termHost.appendChild(view);
@@ -1890,6 +1975,7 @@ function createWorkspace({ name, cwd, id, restore }) {
     const activeIdx = panes.findIndex((p) => p.id === restore.activePaneId);
     ws.activePaneIdx = activeIdx >= 0 ? activeIdx : 0;
     if (restore.fileDir) ws.fileDir = restore.fileDir;
+    flattenWorkspacePanes(ws, ws.panes[ws.activePaneIdx]);
   } else {
     ws.tree = { type: 'leaf', pane: createPane(ws, { type: 'chat' }) };
   }
@@ -1929,11 +2015,13 @@ function setActive(id) {
   }
   const ws = activeWs();
   if (ws) {
+    window.mux.app.allowRoot(ws.cwd);
     state.fileDir = ws.fileDir || ws.cwd;
     state.preview = null;
     renderList();
     renderChrome();
-    refreshFilesView();
+    refreshGitPanel();
+    for (const pane of ws.panes) pane.activeTab?.startChat?.();
     saveWorkspaces();
     requestAnimationFrame(() => {
       fitWorkspace(ws);
@@ -1978,7 +2066,10 @@ let projectFilter = 'all';
 const CHAT_META_KEY = 'synthesis.chat.sidebar';
 const SCRATCH_KEY = 'synthesis.scratch.projects';
 const OWNED_CHATS_KEY = 'synthesis.chat.ownedSessions';
-function readLocalMap(key) { try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { return {}; } }
+const localMapCache = new Map();
+function readLocalMap(key) {
+  try { const raw = localStorage.getItem(key) || '{}'; const cached = localMapCache.get(key); if (cached?.raw === raw) return cached.value; const value = JSON.parse(raw) || {}; localMapCache.set(key, { raw, value }); return value; } catch { return {}; }
+}
 function rememberConversation(path) { if (!path) return; const owned = readLocalMap(OWNED_CHATS_KEY); if (!owned[path]) { owned[path] = true; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned)); } }
 function chatMeta(key) { return readLocalMap(CHAT_META_KEY)[key] || {}; }
 function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[key] = { ...all[key], ...patch }; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); renderList(); }
@@ -1987,23 +2078,42 @@ function isScratch(ws) { return !!readLocalMap(SCRATCH_KEY)[ws.id]; }
 function setScratch(ws, value) { const all = readLocalMap(SCRATCH_KEY); if (value) all[ws.id] = true; else delete all[ws.id]; localStorage.setItem(SCRATCH_KEY, JSON.stringify(all)); }
 async function refreshProjectChats(ws) {
   const cwd = ws.cwd;
-  try { const sessions = await window.mux.chat.sessions(cwd); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); } } catch {}
+  try { const sessions = await window.mux.chat.sessions(cwd, Object.keys(readLocalMap(OWNED_CHATS_KEY))); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); } } catch {}
 }
 function conversationRows() {
-  const rows = [];
+  const rows = [], owned = readLocalMap(OWNED_CHATS_KEY), meta = readLocalMap(CHAT_META_KEY);
+  const byProject = new Map();
+  for (const tab of state.workspaces.flatMap(workspaceTabs)) {
+    if (tab.type !== 'chat' || (!tab.hasConversation && !(tab.sessionPath && owned[tab.sessionPath]))) continue;
+    const id = tab.projectId || tab.owner.ws.id;
+    if (!byProject.has(id)) byProject.set(id, []);
+    byProject.get(id).push(tab);
+  }
   for (const ws of state.workspaces) {
-    const owned = readLocalMap(OWNED_CHATS_KEY);
-    const open = workspaceTabs(ws).filter(tab => tab.type === 'chat' && tab.hasConversation);
+    const open = byProject.get(ws.id) || [], history = ws.chatHistory || [];
+    const histories = new Map(history.map(session => [session.path, session]));
     const paths = new Set(open.map(tab => tab.sessionPath).filter(Boolean));
-    for (const tab of open) rows.push({ ws, tab, key: tab.sessionPath || tab.id, title: tab.title || 'New chat', modified: tab.modified || 0 });
-    for (const session of ws.chatHistory || []) if (owned[session.path] && !paths.has(session.path)) rows.push({ ws, session, key: session.path, title: session.title, modified: session.modified });
+    for (const tab of open) {
+      const key = tab.sessionPath || tab.id, saved = histories.get(tab.sessionPath), info = meta[key] || {};
+      rows.push({ ws, tab, key, title: info.title || (tab.title !== 'Chat' ? tab.title : saved?.title) || 'New chat', modified: tab.modified || info.modified || saved?.modified || 0 });
+    }
+    for (const session of history) if (owned[session.path] && !paths.has(session.path)) {
+      const info = meta[session.path] || {};
+      rows.push({ ws, session, key: session.path, title: info.title || session.title, modified: info.modified || session.modified });
+    }
   }
   return rows;
 }
 function openConversation(row) {
+  if (row.tab) {
+    const ownerWs = row.tab.owner.ws, target = row.tab.owner;
+    flattenWorkspacePanes(ownerWs, target);
+    setActive(ownerWs.id); activateTab(ownerWs, target, row.tab); return;
+  }
+  const target = row.ws.panes[row.ws.activePaneIdx];
+  flattenWorkspacePanes(row.ws, target);
   setActive(row.ws.id);
-  if (row.tab) { activateTab(row.ws, row.tab.owner, row.tab); return; }
-  addPaneTab(row.ws, row.ws.panes[row.ws.activePaneIdx], { type: 'chat', sessionPath: row.session.path });
+  addPaneTab(row.ws, target, { type: 'chat', sessionPath: row.session.path });
 }
 function relativeTime(stamp) {
   if (!stamp) return '';
@@ -2026,6 +2136,17 @@ function conversationMenu(row, x, y) {
       row.ws.name = name.trim(); setScratch(row.ws, false); saveWorkspaces(); renderChrome(); renderList();
     } },
     { label: 'New chat in project', action: () => { setActive(row.ws.id); addPaneTab(row.ws, row.ws.panes[row.ws.activePaneIdx], { type: 'chat' }); } },
+    'sep',
+    { label: 'Delete chat…', action: async () => {
+      if (!window.confirm(`Move “${row.title}” to the Trash?`)) return;
+      const target = row.tab; const sessionPath = target?.sessionPath || row.session?.path;
+      if (target?.isWorking) { window.alert('Stop this chat before deleting it.'); return; }
+      if (sessionPath) { const result = await window.mux.chat.remove(target?.chatCwd || row.ws.cwd, sessionPath); if (!result.ok) { window.alert(result.error || 'Could not delete this chat.'); return; } }
+      if (target) { const pane = target.owner; const index = pane.tabs.indexOf(target); if (index >= 0) pane.tabs.splice(index, 1); disposeTab(target); if (!pane.tabs.length) addPaneTab(pane.ws, pane, { type: 'chat' }, false); if (pane.activeTab === target) pane.activeTab = pane.tabs.find(item => item.type !== 'terminal') || pane.tabs[0]; activateTab(pane.ws, pane, pane.activeTab); }
+      const owned = readLocalMap(OWNED_CHATS_KEY); delete owned[sessionPath]; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned));
+      const meta = readLocalMap(CHAT_META_KEY); delete meta[row.key]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(meta));
+      await refreshProjectChats(row.ws); renderList(); saveWorkspaces();
+    } },
   ];
   showMenu(x, y, items);
 }
@@ -2044,11 +2165,13 @@ function renderList() {
   rows.sort((a, b) => Number(!!chatMeta(b.key).pinned) - Number(!!chatMeta(a.key).pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
   for (const row of rows) {
     const { ws, tab } = row; const meta = chatMeta(row.key);
-    const card = document.createElement('div'); card.className = 'ws-card chat-card' + (ws.id === state.activeId && tab && ws.panes[ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
-    card.dataset.id = ws.id; card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratch(ws) ? 'No project' : ws.name}`);
+    const card = document.createElement('div'); card.className = 'ws-card chat-card' + (tab && tab.owner.ws.id === state.activeId && tab.owner.ws.panes[tab.owner.ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
+    card.dataset.id = ws.id; card.tabIndex = 0; card.draggable = true;
+    card.addEventListener('dragstart', event => { draggedConversation = row; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-synthesis-chat', row.key); syncBrowserBounds(); });
+    card.addEventListener('dragend', () => { draggedConversation = null; document.querySelectorAll('.tab-drop-target').forEach(el => el.classList.remove('tab-drop-target')); syncBrowserBounds(); }); card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratch(ws) ? 'No project' : ws.name}`);
     const heading = document.createElement('div'); heading.className = 'conversation-heading';
     const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratch(ws)); const projectName = document.createElement('span'); projectName.textContent = isScratch(ws) ? 'No project' : ws.name; project.append(projectName);
-    const time = document.createElement('span'); time.className = 'conversation-time'; time.textContent = relativeTime(row.modified);
+    const time = document.createElement('span'); time.className = 'conversation-time'; time.dataset.timestamp = String(row.modified || 0); time.textContent = relativeTime(row.modified);
     heading.append(project, time);
     const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
     const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
@@ -2056,9 +2179,7 @@ function renderList() {
     const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
     if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
     status.append(indicator);
-    const more = document.createElement('button'); more.type = 'button'; more.className = 'conversation-more'; more.textContent = '⋯'; more.setAttribute('aria-label', 'Chat options');
-    more.addEventListener('click', event => { event.stopPropagation(); const rect = more.getBoundingClientRect(); conversationMenu(row, rect.left, rect.bottom + 4); });
-    bottom.append(title, status, more); card.append(heading, bottom);
+    bottom.append(title, status); card.append(heading, bottom);
     card.addEventListener('click', () => openConversation(row));
     card.addEventListener('keydown', event => { if (event.target !== card) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(row); } });
     card.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); conversationMenu(row, event.clientX, event.clientY); });
@@ -2067,6 +2188,9 @@ function renderList() {
   if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; els.list.append(empty); }
   els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;
 }
+
+const relativeTimeTimer = setInterval(() => { document.querySelectorAll('.conversation-time[data-timestamp]').forEach(time => { time.textContent = relativeTime(Number(time.dataset.timestamp)); }); }, 60000);
+window.addEventListener('beforeunload', () => clearInterval(relativeTimeTimer));
 
 function startRename(card, ws) {
   const nameEl = card.querySelector('.ws-name');
@@ -2656,8 +2780,8 @@ async function openPicker() {
 function paneMenu(ws, pane) {
   const isMultiple = ws.panes.length > 1;
   const items = [
-    { label: 'Add New Chat Tab', disabled: pane.tabs.length >= 32, action: () => addPaneTab(ws, pane, { type: 'chat' }) },
-    { label: 'New Browser Tab', disabled: pane.tabs.length >= 32, action: () => addPaneTab(ws, pane, { type: 'browser' }) },
+    { label: 'Add New Chat Tab', disabled: pane.tabs.length >= MAX_PANE_TABS, action: () => addPaneTab(ws, pane, { type: 'chat' }) },
+    { label: 'New Browser Tab', disabled: pane.tabs.length >= MAX_PANE_TABS, action: () => addPaneTab(ws, pane, { type: 'browser' }) },
     { label: 'Close Tab', action: () => closePaneTab(ws, pane, pane.activeTab) },
     'sep',
     { label: 'Split Right', hint: '→', action: () => splitPane(ws, pane, 'row') },
@@ -2844,6 +2968,59 @@ function toggleFilesView() {
   refreshFilesView();
 }
 
+/* ---------------- Git panel ---------------- */
+let gitRefreshSequence = 0, gitVisibleChanges = [];
+function activeGitWorkspace() { const ws = activeWs(); const tab = ws?.panes[ws.activePaneIdx]?.activeTab; return state.workspaces.find(project => project.id === tab?.projectId) || ws; }
+async function refreshGitPanel() {
+  if ($('#git-panel').hidden) return;
+  const ws = activeGitWorkspace(), seq = ++gitRefreshSequence;
+  const repo = $('#git-repo'), empty = $('#git-empty'), init = $('#git-init');
+  init.hidden = true; $('#git-init-path').textContent = '';
+  if (!ws) { repo.hidden = true; empty.hidden = false; $('#git-empty-message').textContent = 'Open a project to use Git.'; return; }
+  const result = await window.mux.git.status(ws.cwd).catch(() => ({ ok: false }));
+  if (seq !== gitRefreshSequence) return;
+  repo.hidden = !result.ok; empty.hidden = !!result.ok;
+  if (!result.ok) { $('#git-empty-message').textContent = result.error || 'This folder is not a Git repository.'; $('#git-init-path').textContent = ws.cwd; init.hidden = !result.canInit; return; }
+  const branches = $('#git-branches'); branches.replaceChildren();
+  for (const branch of result.branches) branches.add(new Option(branch, branch));
+  if (!result.branches.includes(result.branch)) branches.add(new Option(result.branch, result.branch));
+  branches.value = result.branch;
+  gitVisibleChanges = result.changes;
+  $('#git-stage-all').disabled = !result.changes.some(change => change.unstaged);
+  $('#git-unstage-all').disabled = !result.changes.some(change => change.staged);
+  const list = $('#git-changes'); list.replaceChildren();
+  $('#git-count').textContent = `${result.changes.length} ${result.changes.length === 1 ? 'file' : 'files'}`;
+  if (!result.changes.length) { const clean = document.createElement('div'); clean.className = 'git-empty'; clean.textContent = 'No uncommitted changes.'; list.append(clean); }
+  for (const change of result.changes) {
+    const line = document.createElement('div'); line.className = 'git-file';
+    const name = document.createElement('span'); name.textContent = change.path; name.title = change.path; line.append(name);
+    if (change.unstaged) { const stage = document.createElement('button'); stage.textContent = 'Stage'; stage.title = 'Stage ' + change.path; stage.addEventListener('click', () => runGitAction('stage', { paths: [change.path] })); line.append(stage); }
+    if (change.staged) { const unstage = document.createElement('button'); unstage.textContent = 'Unstage'; unstage.title = 'Unstage ' + change.path; unstage.addEventListener('click', () => runGitAction('unstage', { paths: [change.path] })); line.append(unstage); }
+    list.append(line);
+  }
+}
+async function runGitAction(action, data = {}) {
+  const ws = activeGitWorkspace(); if (!ws) return;
+  const feedback = $('#git-feedback'); feedback.textContent = 'Working…';
+  const result = await window.mux.git.action(ws.cwd, action, data).catch(error => ({ ok: false, error: error.message }));
+  feedback.textContent = result.ok ? (result.output || 'Done.') : (result.error || 'Git action failed.');
+  if (result.ok && action === 'commit') $('#git-message').value = '';
+  if (activeGitWorkspace() === ws) refreshGitPanel();
+}
+$('#git-refresh').addEventListener('click', refreshGitPanel);
+$('#git-init').addEventListener('click', () => runGitAction('init'));
+$('#git-branches').addEventListener('change', event => runGitAction('switch', { branch: event.target.value }));
+$('#git-new-branch').addEventListener('click', () => { const name = window.prompt('New branch name'); if (name?.trim()) runGitAction('createBranch', { branch: name.trim() }); });
+$('#git-commit').addEventListener('click', () => runGitAction('commit', { message: $('#git-message').value }));
+$('#git-stage-all').addEventListener('click', () => runGitAction('stage', { paths: gitVisibleChanges.filter(change => change.unstaged).map(change => change.path) }));
+$('#git-unstage-all').addEventListener('click', () => runGitAction('unstage', { paths: gitVisibleChanges.filter(change => change.staged).map(change => change.path) }));
+$('#git-panel').addEventListener('click', async event => {
+  const git = event.target.closest('[data-git-action]'); if (git) { runGitAction(git.dataset.gitAction); return; }
+  const gh = event.target.closest('[data-github-action]'); if (!gh || !activeGitWorkspace()) return;
+  const result = await window.mux.git.github(activeGitWorkspace().cwd, gh.dataset.githubAction).catch(error => ({ ok: false, error: error.message }));
+  $('#git-feedback').textContent = result.ok ? 'Opened GitHub.' : result.error;
+});
+
 /* ---------------- panel collapse ---------------- */
 
 function setWsCollapsed(collapsed) {
@@ -2858,24 +3035,24 @@ function setWsCollapsed(collapsed) {
 
 function updateFilesToggle() {
   const button = $('#files-toggle-btn');
-  if (!button) return;
-  const collapsed = els.app.classList.contains('fs-collapsed');
-  const label = collapsed ? 'Show file manager' : 'Hide file manager';
-  button.dataset.tip = label;
-  button.setAttribute('aria-label', label);
-  button.setAttribute('aria-expanded', String(!collapsed));
+  const open = !$('#git-panel').hidden;
+  button.dataset.tip = open ? 'Close Git menu' : 'Open Git menu';
+  button.setAttribute('aria-label', button.dataset.tip);
+  button.setAttribute('aria-expanded', String(open));
 }
-
 function setFsCollapsed(collapsed) {
-  els.app.classList.toggle('fs-collapsed', collapsed);
-  localStorage.setItem('mux.ui.fsCollapsed', collapsed ? '1' : '0');
+  els.app.classList.add('fs-collapsed');
+  $('#git-panel').hidden = collapsed;
   updateFilesToggle();
-  requestAnimationFrame(() => {
-    const ws = activeWs();
-    if (ws) fitWorkspace(ws);
-    syncBrowserBounds();
-  });
+  if (!collapsed) refreshGitPanel();
+  requestBrowserSync();
 }
+document.addEventListener('pointerdown', event => {
+  if (!$('#git-panel').hidden && !event.target.closest('#git-panel, #files-toggle-btn')) setFsCollapsed(true);
+});
+$('#git-panel').addEventListener('keydown', event => {
+  if (event.key === 'Escape') { event.stopPropagation(); setFsCollapsed(true); $('#files-toggle-btn').focus(); }
+});
 
 /* ---------------- panel resize ---------------- */
 
@@ -2919,7 +3096,7 @@ function initResizing() {
   };
 
   setup($('#resize-ws'), '#sidebar', '--ws-w', 'mux.ui.wsWidth', 240, 560, 264, 1);
-  setup($('#resize-fs'), '#files', '--fs-w', 'mux.ui.fsWidth', 220, 640, 300, -1);
+  
 }
 
 /* ---------------- modal ---------------- */
@@ -2980,22 +3157,43 @@ function renderKeybindings() {
 
 let availableSystemFonts = [];
 let importedChatFonts = [];
+function fontFamilyFor(value) {
+  return value.startsWith('import:') ? 'Synthesis imported ' + value.slice(7) : value;
+}
+function fontNameFor(value) {
+  if (!value) return 'System default';
+  if (value.startsWith('import:')) return importedChatFonts.find(font => 'import:' + font.id === value)?.name || 'Imported font unavailable';
+  return value;
+}
 function renderFontOptions() {
-  const select = $('#setting-chat-font');
-  if (!select) return;
-  select.replaceChildren(new Option('System default', ''));
-  if (importedChatFonts.length) {
-    const group = document.createElement('optgroup'); group.label = 'Imported fonts';
-    for (const font of importedChatFonts) group.append(new Option(font.name, 'import:' + font.id));
-    select.append(group);
+  const current = $('#font-picker-current');
+  current.textContent = fontNameFor(appSettings.chatFont);
+  current.style.fontFamily = appSettings.chatFont ? JSON.stringify(fontFamilyFor(appSettings.chatFont)) + ', sans-serif' : '';
+  if ($('#font-picker-panel').hidden) return;
+  const list = $('#font-picker-list'), query = $('#font-picker-search').value.trim().toLocaleLowerCase();
+  const options = [{ value: '', label: 'System default' }, ...importedChatFonts.map(font => ({ value: 'import:' + font.id, label: font.name })), ...availableSystemFonts.map(family => ({ value: family, label: family }))];
+  if (appSettings.chatFont && !options.some(option => option.value === appSettings.chatFont)) options.push({ value: appSettings.chatFont, label: fontNameFor(appSettings.chatFont) });
+  const fragment = document.createDocumentFragment();
+  for (const option of options.filter(item => item.label.toLocaleLowerCase().includes(query))) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'font-picker-option';
+    button.textContent = option.label; button.setAttribute('aria-pressed', String(option.value === appSettings.chatFont));
+    if (option.value) button.style.fontFamily = JSON.stringify(fontFamilyFor(option.value)) + ', sans-serif';
+    button.addEventListener('click', () => { updateAppSettings({ chatFont: option.value }); closeFontPicker(); $('#setting-chat-font').focus(); });
+    fragment.append(button);
   }
-  if (availableSystemFonts.length) {
-    const group = document.createElement('optgroup'); group.label = 'Installed fonts';
-    for (const family of availableSystemFonts) group.append(new Option(family, family));
-    select.append(group);
-  }
-  if (appSettings.chatFont && ![...select.options].some(option => option.value === appSettings.chatFont)) select.append(new Option(appSettings.chatFont.startsWith('import:') ? 'Imported font unavailable' : appSettings.chatFont, appSettings.chatFont));
-  select.value = appSettings.chatFont;
+  list.replaceChildren(fragment);
+}
+function closeFontPicker() {
+  $('#font-picker-panel').hidden = true;
+  $('#setting-chat-font').setAttribute('aria-expanded', 'false');
+}
+function openFontPicker() {
+  const trigger = $('#setting-chat-font'), panel = $('#font-picker-panel');
+  const rect = trigger.getBoundingClientRect();
+  panel.style.left = Math.max(12, Math.min(rect.right - 260, window.innerWidth - 272)) + 'px';
+  panel.style.top = Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - 320)) + 'px';
+  panel.hidden = false; trigger.setAttribute('aria-expanded', 'true');
+  $('#font-picker-search').value = ''; renderFontOptions(); $('#font-picker-search').focus();
 }
 async function registerImportedFont(font) {
   const bytes = Uint8Array.from(atob(font.data), character => character.charCodeAt(0));
@@ -3053,6 +3251,7 @@ function openSettings(tab = 'appearance') {
 }
 
 function closeSettings() {
+  closeFontPicker();
   if (recordingShortcutFor) {
     recordingShortcutFor = null;
     renderKeybindings();
@@ -3137,7 +3336,7 @@ function runShortcutAction(actionId) {
     case 'settings': openSettings(); break;
     case 'newSession': openModal(); break;
     case 'closeSession': if (state.activeId) closeWorkspace(state.activeId); break;
-    case 'openFiles': openPicker(); break;
+    case 'openFiles': setFsCollapsed(!$('#git-panel').hidden); break;
     case 'splitRight':
       if (ws) splitPane(ws, ws.panes[ws.activePaneIdx], 'row');
       break;
@@ -3228,7 +3427,10 @@ $('#accent-presets').addEventListener('click', (e) => {
 });
 $('#setting-accent-custom').addEventListener('change', (e) => updateAppSettings({ accentColor: e.target.value }));
 for (const [id, key] of Object.entries({ 'chat-background': 'chatBackground', 'sidebar-color': 'sidebarColor', 'bubble-color': 'bubbleColor', 'chat-text': 'chatText' })) $('#setting-' + id).addEventListener('input', event => updateAppSettings({ [key]: event.target.value }));
-$('#setting-chat-font').addEventListener('change', event => updateAppSettings({ chatFont: event.target.value }));
+$('#setting-chat-font').addEventListener('click', () => { if ($('#font-picker-panel').hidden) openFontPicker(); else closeFontPicker(); });
+$('#font-picker-search').addEventListener('input', renderFontOptions);
+$('#font-picker-panel').addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); closeFontPicker(); $('#setting-chat-font').focus(); } });
+document.addEventListener('pointerdown', event => { if (!$('#font-picker-panel').hidden && !event.target.closest('#font-picker-panel, #setting-chat-font')) closeFontPicker(); });
 $('#setting-chat-font-size').addEventListener('change', event => updateAppSettings({ chatFontSize: Number(event.target.value) }));
 $('#setting-import-font').addEventListener('click', importChatFont);
 $('#setting-font-size').addEventListener('change', (e) => updateAppSettings({ fontSize: Number(e.target.value) }));
@@ -3358,7 +3560,7 @@ if (els.filesFilter) {
 if (els.filesHidden) els.filesHidden.addEventListener('click', toggleHiddenFiles);
 if (els.filesViewBtn) els.filesViewBtn.addEventListener('click', toggleFilesView);
 $('#files-toggle-btn').addEventListener('click', () =>
-  setFsCollapsed(!els.app.classList.contains('fs-collapsed')));
+  setFsCollapsed(!$('#git-panel').hidden));
 $('#ws-collapse').addEventListener('click', () => setWsCollapsed(true));
 $('#ws-expand').addEventListener('click', () => setWsCollapsed(false));
 
@@ -3402,6 +3604,7 @@ els.filesBody.addEventListener('contextmenu', (e) => {
 window.addEventListener('keydown', (e) => {
   if (recordingShortcutFor && handleShortcutRecording(e)) return;
   if (e.key === 'Escape') {
+    if (!$('#git-panel').hidden) { setFsCollapsed(true); $('#files-toggle-btn').focus(); return; }
     if (!$('#history-backdrop').classList.contains('hidden')) {
       closeSavedHistory();
       return;
@@ -3485,7 +3688,7 @@ window.addEventListener('beforeunload', () => {
 
   // panel visibility: workspaces shown, files collapsed — remembered per user
   setWsCollapsed(localStorage.getItem('mux.ui.wsCollapsed') === '1');
-  setFsCollapsed(localStorage.getItem('mux.ui.fsCollapsed') === '1');
+  setFsCollapsed(true);
   initResizing();
 
   // Restore saved workspaces (schema v2 — the main process migrates older
@@ -3498,12 +3701,11 @@ window.addEventListener('beforeunload', () => {
     for (const spec of saved.workspaces) {
       createWorkspace({ name: spec.name, cwd: spec.cwd, id: spec.id, restore: spec });
     }
-    const target = state.workspaces.find((w) => w.id === saved.activeWorkspaceId) || state.workspaces[0];
-    setActive(target.id);
-  } else {
-    const ws = createWorkspace({ name: 'workspace 1', cwd: state.home });
-    setActive(ws.id);
   }
+  // Reuse an untouched scratch space; otherwise create a new one without changing saved chats.
+  let fresh = state.workspaces.find(ws => isScratch(ws) && workspaceTabs(ws).every(tab => tab.type === 'chat' && !tab.hasConversation && !(tab.sessionPath && readLocalMap(OWNED_CHATS_KEY)[tab.sessionPath])));
+  if (!fresh) { const cwd = await window.mux.chat.createScratch(); fresh = createWorkspace({ name: 'No project', cwd }); setScratch(fresh, true); }
+  setActive(fresh.id); renderList();
 
   document.fonts.ready.then(() => {
     const cur = activeWs();

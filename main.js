@@ -11,6 +11,7 @@ const stateStore = require('./lib/state-store');
 const { ID_RE } = require('./lib/state-schema');
 const { PathGuard } = require('./lib/path-guard');
 const { createBrowserManager } = require('./lib/browser-views');
+const gitControls = require('./lib/git-controls');
 
 const SHELL = process.env.SHELL || '/bin/zsh';
 const MAX_HISTORY_BYTES = 10 * 1024 * 1024;
@@ -35,11 +36,36 @@ let win = null;
 const chatManager = require('./lib/chat-process').createChatManager((id, event) => {
   if (win && !win.isDestroyed()) win.webContents.send('chat:event', { id, event });
 });
-async function chatSessions(cwd) {
+function sessionDirectory(cwd) {
   const root = path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'sessions');
-  const dir = path.join(root, '--' + cwd.replace(/^[/\\]+/, '').replace(/[/\\:]/g, '-') + '--');
+  return path.join(root, '--' + cwd.replace(/^[/\\]+/, '').replace(/[/\\:]/g, '-') + '--');
+}
+async function validChatSession(cwd, file) {
+  if (typeof file !== 'string' || path.extname(file) !== '.jsonl') return false;
+  let handle;
   try {
-    const names = (await fsp.readdir(dir)).filter(name => name.endsWith('.jsonl'));
+    const [parent, actual] = await Promise.all([fsp.realpath(sessionDirectory(cwd)), fsp.realpath(file)]);
+    if (path.dirname(actual) !== parent) return false;
+    handle = await fsp.open(actual, 'r');
+    const data = Buffer.alloc(65536), { bytesRead } = await handle.read(data, 0, data.length, 0);
+    const header = JSON.parse(data.subarray(0, bytesRead).toString('utf8').split('\n', 1)[0]);
+    return header.type === 'session' && header.cwd === cwd;
+  } catch { return false; } finally { if (handle) await handle.close(); }
+}
+const pendingSessionScans = new Map();
+function chatSessions(cwd, ownedPaths) {
+  const directory = sessionDirectory(cwd);
+  const names = Array.isArray(ownedPaths) ? [...new Set(ownedPaths.filter(file => typeof file === 'string' && path.dirname(file) === directory && file.endsWith('.jsonl')).map(file => path.basename(file)))].sort() : null;
+  if (names && !names.length) return Promise.resolve([]);
+  const key = cwd + '\0' + JSON.stringify(names);
+  if (pendingSessionScans.has(key)) return pendingSessionScans.get(key);
+  const pending = scanChatSessions(cwd, names).finally(() => pendingSessionScans.delete(key));
+  pendingSessionScans.set(key, pending); return pending;
+}
+async function scanChatSessions(cwd, ownedNames) {
+  const dir = sessionDirectory(cwd);
+  try {
+    const names = ownedNames || (await fsp.readdir(dir)).filter(name => name.endsWith('.jsonl'));
     const results = [];
     // Bound the number of open files while keeping disk reads off the UI thread.
     for (let i = 0; i < names.length; i += 20) {
@@ -54,14 +80,51 @@ async function chatSessions(cwd) {
           if (header.type !== 'session' || header.cwd !== cwd) return null;
           let title = '';
           for (const line of lines) { try { const entry = JSON.parse(line); if (entry.type === 'session_info' && entry.name) title = entry.name; else if (!title && entry.type === 'message' && entry.message?.role === 'user') { const c = entry.message.content; title = typeof c === 'string' ? c : (c || []).filter(x => x.type === 'text').map(x => x.text).join(' '); } } catch {} }
-          return { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: stat.mtimeMs };
+          // Message timestamps reflect conversation activity; file mtime can change when Pi reopens a session.
+          let latest = 0;
+          const tail = stat.size > buffer.length ? Buffer.alloc(Math.min(stat.size, 65536)) : buffer.subarray(0, bytesRead);
+          if (stat.size > buffer.length) { const read = await handle.read(tail, 0, tail.length, stat.size - tail.length); if (read.bytesRead < tail.length) tail.fill(0, read.bytesRead); }
+          for (const line of tail.toString('utf8').split('\n')) { try { const entry = JSON.parse(line); if (entry.type === 'message' && ['user', 'assistant'].includes(entry.message?.role) && Number.isFinite(entry.message.timestamp)) latest = Math.max(latest, entry.message.timestamp); } catch {} }
+          return { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: latest || stat.mtimeMs };
         } catch { return null; } finally { if (handle) await handle.close(); }
       }));
       results.push(...batch.filter(Boolean));
     }
-    return results.sort((a, b) => b.modified - a.modified).slice(0, 200);
+    return results.sort((a, b) => b.modified - a.modified);
   } catch { return []; }
 }
+ipcMain.handle('git:status', async (_event, cwd) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
+  try { return { ok: true, ...(await gitControls.status(dir)) }; } catch (error) { const notRepo = /not a git repository/i.test(error.stderr || error.message || ''); return { ok: false, canInit: notRepo, error: notRepo ? 'This folder is not a Git repository.' : (error.stderr || error.message || 'Could not read Git status.').trim().slice(0, 1000) }; }
+});
+ipcMain.handle('git:action', async (_event, { cwd, action, data }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir) return { ok: false, error: 'Project folder is unavailable.' };
+  try { return { ok: true, output: await gitControls.action(dir, action, data) }; } catch (error) { return { ok: false, error: (error.stderr || error.message || 'Git action failed.').trim().slice(0, 2000) }; }
+});
+ipcMain.handle('git:github', async (_event, { cwd, action }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir || !['repo', 'pr', 'createPr'].includes(action)) return { ok: false, error: 'Project folder is unavailable.' };
+  const args = action === 'repo' ? ['repo', 'view', '--web'] : action === 'pr' ? ['pr', 'view', '--web'] : ['pr', 'create', '--web'];
+  try { await new Promise((resolve, reject) => execFile('/opt/homebrew/bin/gh', args, { cwd: dir, timeout: 30000, env: { ...process.env, GH_PROMPT_DISABLED: '1' } }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout))); return { ok: true }; } catch (error) { return { ok: false, error: error.message.slice(0, 1000) }; }
+});
+ipcMain.handle('chat:delete', async (_event, { cwd, sessionPath }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir || typeof sessionPath !== 'string') return { ok: false, error: 'Chat not found.' };
+  try { if (!(await validChatSession(dir, sessionPath))) return { ok: false, error: 'Chat not found in this project.' }; await shell.trashItem(sessionPath); return { ok: true }; } catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('chat:title', async (_event, { cwd, message, model }) => {
+  const dir = pathGuard.resolveAllowed(cwd); if (!dir || typeof message !== 'string' || !message.trim()) return null;
+  const executable = fs.existsSync(path.join(os.homedir(), '.local/bin/pi')) ? path.join(os.homedir(), '.local/bin/pi') : 'pi';
+  const args = ['--print', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--thinking', 'off'];
+  if (model && typeof model.provider === 'string' && typeof model.id === 'string') args.push('--provider', model.provider, '--model', model.id);
+  args.push('Write a concise 2 to 6 word title for the following first chat message. Return only the title, without quotes or punctuation:');
+  return await new Promise(resolve => {
+    const child = spawn(executable, args, { cwd: dir, env: { ...process.env, PATH: [path.join(os.homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].join(':') }, stdio: ['pipe','pipe','ignore'] });
+    let output = ''; const timer = setTimeout(() => { child.kill(); resolve(null); }, 30000);
+    child.stdout.on('data', chunk => { output += chunk.toString().slice(0, 1000); });
+    child.on('error', () => { clearTimeout(timer); resolve(null); });
+    child.on('close', code => { clearTimeout(timer); const title = output.trim().split('\n')[0].replace(/^[#*\s"']+|[#*\s"'.:]+$/g, '').slice(0, 80); resolve(code === 0 && title ? title : null); });
+    child.stdin.end(message.slice(0, 6000));
+  });
+});
 ipcMain.handle('chat:createScratch', () => {
   const root = path.join(app.getPath('userData'), 'scratch');
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -69,15 +132,18 @@ ipcMain.handle('chat:createScratch', () => {
   pathGuard.addAllowedRoot(dir);
   return dir;
 });
-ipcMain.handle('chat:sessions', (_e, cwd) => {
-  const dir = pathGuard.resolveAllowed(cwd);
-  return dir ? chatSessions(dir) : [];
+ipcMain.handle('chat:sessions', (_e, cwd, ownedPaths) => {
+  // Session metadata lives under Pi's own data directory; listing it must not
+  // access every restored project folder (which can trigger macOS privacy prompts).
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096 || !Array.isArray(ownedPaths)) return [];
+  return chatSessions(path.normalize(cwd), ownedPaths);
 });
-ipcMain.handle('chat:start', async (_e, { id, cwd, sessionPath }) => {
+ipcMain.handle('chat:start', async (event, { id, cwd, sessionPath }) => {
   if (!validSessionId(id)) return { ok: false, error: 'Invalid chat ID' };
   const dir = pathGuard.resolveAllowed(cwd);
   if (!dir) return { ok: false, error: 'Workspace folder is unavailable' };
-  if (sessionPath && !(await chatSessions(dir)).some(s => s.path === sessionPath)) return { ok: false, error: 'Saved chat not found in this workspace' };
+  if (sessionPath && !(await validChatSession(dir, sessionPath))) return { ok: false, error: 'Saved chat not found in this workspace' };
+  if (!win || win.isDestroyed() || event.sender !== win.webContents) return { ok: false, error: 'The application window was closed.' };
   try { chatManager.start(id, dir, sessionPath); return { ok: true }; }
   catch (error) { return { ok: false, error: error.message }; }
 });
@@ -495,6 +561,12 @@ ipcMain.handle('fonts:import', async () => {
     return { font: await readImportedFont(name) };
   } catch { return { error: 'Could not import that font file.' }; }
 });
+ipcMain.handle('app:openChatLink', async (_event, raw) => {
+  if (typeof raw !== 'string' || raw.length > 4096) return false;
+  let url; try { url = new URL(raw); } catch { return false; }
+  if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return false;
+  try { await shell.openExternal(url.toString()); return true; } catch { return false; }
+});
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.handle('app:shell', () => path.basename(SHELL));
 ipcMain.handle('app:allowRoot', (_e, root) => {
@@ -555,13 +627,13 @@ function createWindow() {
   }
   win.loadFile(path.join(__dirname, 'index.html'));
   win.on('closed', () => {
+    chatManager.stopAll();
     browserManager.disposeAll();
     win = null;
   });
 }
 
-// NOTE: sessions are intentionally NOT killed here — the daemon keeps
-// conversations alive so they resume when the app reopens.
+// The detached terminal daemon retains terminal sessions; chat history is saved separately.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -571,6 +643,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  chatManager.stopAll();
   browserManager.disposeAll();
   if (dirWatcher) { try { dirWatcher.close(); } catch { /* noop */ } dirWatcher = null; }
   if (client) { try { client.end(); } catch { /* noop */ } }

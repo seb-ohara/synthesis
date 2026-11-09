@@ -1,11 +1,14 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('mux', {
+  git: { status: cwd => ipcRenderer.invoke('git:status', cwd), action: (cwd, action, data) => ipcRenderer.invoke('git:action', { cwd, action, data }), github: (cwd, action) => ipcRenderer.invoke('git:github', { cwd, action }) },
   fonts: { list: (includeSystem) => ipcRenderer.invoke('fonts:list', includeSystem), import: () => ipcRenderer.invoke('fonts:import') },
   chat: {
     start: (id, cwd, sessionPath) => ipcRenderer.invoke('chat:start', { id, cwd, sessionPath }),
-    sessions: (cwd) => ipcRenderer.invoke('chat:sessions', cwd),
+    sessions: (cwd, ownedPaths) => ipcRenderer.invoke('chat:sessions', cwd, ownedPaths),
     createScratch: () => ipcRenderer.invoke('chat:createScratch'),
+    remove: (cwd, sessionPath) => ipcRenderer.invoke('chat:delete', { cwd, sessionPath }),
+    title: (cwd, message, model) => ipcRenderer.invoke('chat:title', { cwd, message, model }),
     command: (id, message) => ipcRenderer.send('chat:command', { id, message }),
     stop: (id) => ipcRenderer.send('chat:stop', id),
     onEvent: (id, cb) => { const h = (_e, m) => { if (m.id === id) cb(m.event); }; ipcRenderer.on('chat:event', h); return () => ipcRenderer.removeListener('chat:event', h); },
@@ -81,6 +84,7 @@ contextBridge.exposeInMainWorld('mux', {
     load: () => ipcRenderer.invoke('sessions:load'),
   },
   app: {
+    openChatLink: (url) => ipcRenderer.invoke('app:openChatLink', url),
     setTabShortcuts: (bindings) => ipcRenderer.send('app:tab-shortcuts', bindings),
     onTabCommand: (cb) => {
       const h = (_e, message) => cb(message);

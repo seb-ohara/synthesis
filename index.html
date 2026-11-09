@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'" />
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:" />
   <title>Synthesis</title>
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -13,7 +13,7 @@
   <div id="titlebar" class="drag">
     <div class="brand"><img class="brand-logo" src="assets/logo-variations/Synthesis-icon.png" alt="" />Synthesis</div>
     <div id="titlebar-title" class="drag">workspace</div>
-    <button id="files-toggle-btn" class="titlebar-files-btn" data-tip="Hide file manager" aria-label="Hide file manager" aria-expanded="true"><span aria-hidden="true">▤</span> files</button>
+    <button id="files-toggle-btn" class="titlebar-files-btn" data-tip="Show Git panel" aria-label="Show Git panel" aria-expanded="true"><span aria-hidden="true">⑂</span> Git</button>
   </div>
 
   <div id="app">
@@ -48,7 +48,7 @@
     <div id="resize-fs" class="v-resize" data-tip="Drag to resize · double-click to reset"></div>
 
     <!-- RIGHT: file viewer (fully collapsible from the top menu) -->
-    <aside id="files">
+    <aside id="files" hidden>
       <div class="panel">
         <header class="side-head">
           <span>Files</span>
@@ -70,10 +70,23 @@
         <footer id="files-meta"></footer>
       </div>
     </aside>
+    <aside id="git-panel" role="dialog" aria-label="Git and GitHub" hidden>
+      <header class="git-header"><strong>Git</strong><button id="git-refresh" class="icon-btn" title="Refresh Git status" aria-label="Refresh Git status">↻</button></header>
+      <div class="git-content">
+        <div id="git-empty" class="git-empty"><p id="git-empty-message">Open a project to use Git.</p><p id="git-init-path" class="git-init-path"></p><button id="git-init" type="button" hidden>Initialize repository</button></div>
+        <div id="git-repo" hidden>
+          <div class="git-section"><span class="git-label">Branch</span><div class="git-branch"><select id="git-branches" aria-label="Current branch"></select><button id="git-new-branch" type="button" title="Create branch">＋</button></div></div>
+          <div class="git-section"><div class="git-section-heading"><strong>Changes</strong><span id="git-count"></span></div><div id="git-changes"></div><div class="git-buttons git-bulk"><button id="git-stage-all" type="button">Stage all</button><button id="git-unstage-all" type="button">Unstage all</button></div></div>
+          <div class="git-section"><label class="git-label" for="git-message">Commit message</label><textarea id="git-message" rows="2" placeholder="Describe your changes…"></textarea><button id="git-commit" class="git-primary" type="button">Commit staged changes</button></div>
+          <div class="git-section"><span class="git-label">Sync</span><div class="git-buttons"><button data-git-action="pull">Pull</button><button data-git-action="push">Push</button></div></div>
+          <div class="git-section"><span class="git-label">GitHub</span><div class="git-buttons"><button data-github-action="repo">Repository</button><button data-github-action="pr">View pull request</button><button data-github-action="createPr">Create pull request</button></div></div>
+        </div><div id="git-feedback" role="status"></div>
+      </div>
+    </aside>
   </div>
 
   <!-- STATUS BAR -->
-  <footer id="statusbar">
+  <footer id="statusbar" hidden>
     <div class="status-left">
       <span class="status-dot"></span>
       <span id="status-ws">—</span>
@@ -126,6 +139,7 @@
 
   <!-- APPLICATION SETTINGS -->
   <div id="settings-backdrop" class="hidden">
+    <div id="font-picker-panel" class="font-picker-panel" role="dialog" aria-label="Choose chat font" hidden><input id="font-picker-search" type="search" placeholder="Search fonts…" aria-label="Search fonts"><div id="font-picker-list"></div></div>
     <section id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="settings-header">
         <div>
@@ -166,7 +180,7 @@
             <div class="settings-row"><div class="settings-copy"><label for="setting-sidebar-color">Sidebar</label><p>The background behind your chat list.</p></div><input id="setting-sidebar-color" class="settings-color" type="color" /></div>
             <div class="settings-row"><div class="settings-copy"><label for="setting-bubble-color">Chat bubbles</label><p>The background of your messages.</p></div><input id="setting-bubble-color" class="settings-color" type="color" /></div>
             <div class="settings-row"><div class="settings-copy"><label for="setting-chat-text">Chat text</label><p>Text in conversations and the composer.</p></div><input id="setting-chat-text" class="settings-color" type="color" /></div>
-            <div class="settings-row"><div class="settings-copy"><label for="setting-chat-font">Chat font</label><p>Choose an installed font or import a font file.</p></div><div class="font-controls"><select id="setting-chat-font" class="settings-select" aria-label="Chat font"><option value="">System default</option></select><button id="setting-import-font" class="ghost-btn" type="button">Import…</button></div></div>
+            <div class="settings-row"><div class="settings-copy"><label id="chat-font-label">Chat font</label><p>Choose an installed font or import a font file.</p></div><div class="font-controls"><button id="setting-chat-font" class="settings-select font-picker-trigger" type="button" aria-labelledby="chat-font-label font-picker-current" aria-haspopup="dialog" aria-expanded="false"><span id="font-picker-current">System default</span><span aria-hidden="true">⌄</span></button><button id="setting-import-font" class="ghost-btn" type="button">Import…</button></div></div>
             <div class="settings-row"><div class="settings-copy"><label for="setting-chat-font-size">Chat font size</label><p>Size of messages and composer text.</p></div><select id="setting-chat-font-size" class="settings-select"><option value="12">12 px</option><option value="13">13 px</option><option value="14">14 px</option><option value="15">15 px</option><option value="16">16 px</option><option value="18">18 px</option><option value="20">20 px</option><option value="22">22 px</option><option value="24">24 px</option></select></div>
             <p id="font-settings-status" class="font-settings-status" role="status"></p>
             <div class="settings-row hidden">
@@ -247,6 +261,9 @@
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="lib/pane-status.js"></script>
+  <script src="lib/chat-rich-text.js"></script>
+  <script src="node_modules/marked/lib/marked.umd.js"></script>
+  <script src="node_modules/dompurify/dist/purify.min.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
