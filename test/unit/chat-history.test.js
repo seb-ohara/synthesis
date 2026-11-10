@@ -1,0 +1,50 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { visibleHistory, createHistoryReader } = require('../../lib/chat-history');
+const cwd = '/test/project';
+const header = { type: 'session', version: 3, cwd };
+const message = (id, parentId, role, content) => ({ type: 'message', id, parentId, message: { role, content } });
+const source = entries => [header, ...entries].map(entry => JSON.stringify(entry)).join('\n') + '\n';
+
+test('preloaded history follows the active branch and preserves images and rich text', () => {
+  const image = { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
+  const entries = [message('a', null, 'user', [{ type: 'text', text: 'Question' }, image]), message('old', 'a', 'assistant', 'Old branch'), message('new', 'a', 'assistant', 'Current branch'), { ...message('tool', 'new', 'toolResult', [{ type: 'text', text: 'Rich output' }]), message: { role: 'toolResult', toolName: 'rich_text', content: [{ type: 'text', text: 'Rich output' }] } }];
+  const history = visibleHistory(source(entries), cwd);
+  assert.deepEqual(history.map(m => m.role), ['user', 'assistant', 'toolResult']);
+  assert.equal(history[1].content, 'Current branch');
+  assert.deepEqual(history[0].content[1], image);
+});
+
+test('preloaded history respects compaction and context edits', () => {
+  const entries = [message('a', null, 'user', 'Summarized'), message('b', 'a', 'user', 'Keep'), message('c', 'b', 'assistant', 'Original'), { type: 'compaction', id: 'd', parentId: 'c', firstKeptEntryId: 'b' }, { type: 'context_edit', id: 'e', parentId: 'd', targetId: 'c', replacement: { content: 'Edited' } }, message('f', 'e', 'user', 'Removed'), { type: 'context_edit', id: 'g', parentId: 'f', targetId: 'f', replacement: null }];
+  assert.deepEqual(visibleHistory(source(entries), cwd).map(m => m.content), ['Keep', 'Edited']);
+});
+
+test('preloading rejects unknown formats, wrong projects and invalid branches', () => {
+  assert.throws(() => visibleHistory(source([]), '/other'));
+  assert.throws(() => visibleHistory(JSON.stringify({ ...header, version: 4 }), cwd));
+  assert.throws(() => visibleHistory(source([message('a', 'missing', 'user', 'Invalid')]), cwd));
+  assert.throws(() => visibleHistory(source([message('a', 'b', 'user', 'Cycle'), message('b', 'a', 'assistant', 'Cycle')]), cwd));
+});
+
+test('cached history reloads changed files and bounds retained entries', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'synthesis-history-cache-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'chat.jsonl'), second = path.join(dir, 'other.jsonl');
+  await fs.writeFile(file, source([message('a', null, 'user', 'First')]));
+  const reader = createHistoryReader({ maxEntries: 1 });
+  const first = await reader.load(cwd, file);
+  assert.equal((await reader.load(cwd, file)), first);
+  await fs.writeFile(file, source([message('a', null, 'user', 'Updated content')]));
+  const updated = await reader.load(cwd, file);
+  assert.equal(updated[0].content, 'Updated content');
+  await fs.writeFile(second, source([message('b', null, 'user', 'Other')]));
+  await reader.load(cwd, second);
+  assert.notEqual(await reader.load(cwd, file), updated);
+  await fs.unlink(file);
+  await assert.rejects(reader.load(cwd, file));
+});

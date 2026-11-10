@@ -626,16 +626,31 @@ function refreshView(ws) {
 
 // Split layouts are a temporary way to arrange surfaces, not part of a chat.
 // Keep the live tabs (including running agents) while returning to one pane.
+function parkTab(tab) {
+  const pane = tab.owner, ws = pane.ws;
+  const index = pane.tabs.indexOf(tab);
+  if (index >= 0) pane.tabs.splice(index, 1);
+  if (!ws.parkedTabs) ws.parkedTabs = [];
+  if (!ws.parkedTabs.includes(tab)) ws.parkedTabs.push(tab);
+  tab.parked = true; tab.body.classList.add('tab-hidden'); tab.body.remove();
+  if (pane.activeTab === tab) pane.activeTab = pane.tabs.find(item => item.type !== 'terminal') || null;
+}
+function restoreParkedTab(tab, pane) {
+  const ws = pane.ws, previousWs = tab.owner.ws;
+  for (const existing of [...pane.tabs]) if (existing.type !== 'terminal') parkTab(existing);
+  const index = previousWs.parkedTabs?.indexOf(tab) ?? -1;
+  if (index >= 0) previousWs.parkedTabs.splice(index, 1);
+  if (tab.syncObserver && tab.tile !== pane.tile) { tab.syncObserver.unobserve(tab.tile); tab.syncObserver.observe(pane.tile); }
+  tab.owner = pane; tab.tile = pane.tile; tab.parked = false; pane.tabs.push(tab); pane.tile.appendChild(tab.body);
+  activateTab(ws, pane, tab);
+}
+// Split layouts are temporary; retain live conversations independently of the visible pane.
 function flattenWorkspacePanes(ws, target) {
-  if (!target || !ws.panes.includes(target) || ws.panes.length <= 1) return;
+  if (!target || !ws.panes.includes(target)) return;
   for (const pane of [...ws.panes]) {
     if (pane === target) continue;
-    for (const tab of pane.tabs) {
-      if (tab.syncObserver) { tab.syncObserver.unobserve(pane.tile); tab.syncObserver.observe(target.tile); }
-      tab.owner = target; tab.tile = target.tile; target.tabs.push(tab); target.tile.appendChild(tab.body);
-      tab.body.classList.toggle('tab-hidden', tab !== target.activeTab);
-    }
-    pane.tabs = []; pane.layoutObserver?.disconnect(); pane.tile.remove();
+    for (const tab of [...pane.tabs]) parkTab(tab);
+    pane.layoutObserver?.disconnect(); pane.tile.remove();
   }
   ws.panes = [target]; ws.activePaneIdx = 0; ws.tree = { type: 'leaf', pane: target };
   updatePaneSurfaceChrome(target); renderPaneTabs(target); refreshView(ws); syncBrowserBounds();
@@ -661,15 +676,15 @@ function afterLayout(ws, focusPane) {
 function focusPaneSurface(pane) {
   if (!pane) return;
   if (pane.type === 'terminal' && pane.term) pane.term.focus();
-  else if (pane.type === 'browser' && pane.urlInput) pane.urlInput.focus();
+  else if (pane.type === 'browser' && pane.urlInput) { pane.activeTab?.loadRestoredDocument?.(); pane.loadRestoredDocument?.(); pane.urlInput.focus(); }
   else if (pane.type === 'chat') { pane.activeTab?.startChat?.(); pane.startChat?.(); pane.body.querySelector('textarea')?.focus(); }
 }
 
-function splitPane(ws, pane, dir, type = 'chat') {
+function splitPane(ws, pane, dir, type = 'chat', opts = {}) {
   if (ws.closingPane) return;
   const found = findLeaf(ws.tree, pane);
   if (!found) return;
-  const newPane = createPane(ws, { type });
+  const newPane = createPane(ws, { type, ...opts });
   const replacement = {
     type: 'split',
     dir,
@@ -1064,7 +1079,7 @@ function initTerminalPane(ws, pane) {
 /* ---------------- browser panes ---------------- */
 
 function safeHost(url) {
-  try { return new URL(url).host || 'browser'; } catch { return url ? 'browser' : 'browser'; }
+  try { const parsed = new URL(url); return parsed.protocol === 'synthesis-doc:' ? decodeURIComponent(parsed.pathname.split('/').pop()) : parsed.host || 'browser'; } catch { return 'browser'; }
 }
 
 function browserInputTarget(input) {
@@ -1083,9 +1098,11 @@ function updateBrowserChrome(ws, pane, s) {
   const nextUrl = s.url || pane.currentUrl || '';
   const urlChanged = nextUrl !== pane.currentUrl;
   pane.currentUrl = nextUrl;
+  if (s.documentPath) pane.documentPath = s.documentPath;
+  else if (s.url && !s.url.startsWith('synthesis-doc:')) pane.documentPath = '';
   if (urlChanged) saveWorkspaces();
   if (!pane.oscTitle) setPaneTitle(pane, s.title || (pane.currentUrl ? safeHost(pane.currentUrl) : 'New tab'));
-  if (document.activeElement !== pane.urlInput) pane.urlInput.value = s.url || '';
+  if (document.activeElement !== pane.urlInput) pane.urlInput.value = s.documentPath || (pane.currentUrl.startsWith('synthesis-doc:') || pane.restoringDocument ? pane.documentPath : '') || s.url || '';
   pane.loading = Boolean(s.loading);
   if (pane.reloadBtn) {
     pane.reloadBtn.textContent = s.loading ? '✕' : '↻';
@@ -1108,7 +1125,7 @@ function updateBrowserChrome(ws, pane, s) {
         e.stopPropagation();
         pane.hasError = false;
         pane.errorBox.classList.add('hidden');
-        window.mux.browser.navigate(pane.id, pane.urlInput.value || pane.currentUrl);
+        window.mux.browser.navigate(pane.id, pane.documentPath ? pane.currentUrl : (pane.urlInput.value || pane.currentUrl));
         requestBrowserSync();
       });
       pane.errorBox.append(text, retry);
@@ -1122,7 +1139,9 @@ function updateBrowserChrome(ws, pane, s) {
 
 function initBrowserPane(ws, pane, opts) {
   pane.zoom = typeof opts.zoom === 'number' ? Math.min(3, Math.max(0.5, opts.zoom)) : 1;
-  pane.currentUrl = opts.url || '';
+  pane.restoreDocumentUrl = /^file:/i.test(opts.url || '') ? opts.url : '';
+  pane.currentUrl = pane.restoreDocumentUrl ? '' : (opts.url || '');
+  pane.documentPath = opts.documentPath || '';
   pane.hasError = false;
   pane.loading = false;
   const surface = document.createElement('div');
@@ -1152,13 +1171,13 @@ function initBrowserPane(ws, pane, opts) {
   urlInput.type = 'text';
   urlInput.spellcheck = false;
   urlInput.placeholder = 'Search or enter a URL';
-  urlInput.value = pane.currentUrl;
+  urlInput.value = pane.documentPath || pane.currentUrl;
   urlInput.dataset.tip = 'Search the web or enter an http(s) address';
   pane.urlInput = urlInput;
   toolbar.appendChild(urlInput);
 
   const extBtn = mkNavBtn('↗', 'Open in default browser');
-  extBtn.addEventListener('click', () => window.mux.browser.openExternal(surfaceId(pane)));
+  extBtn.addEventListener('click', () => pane.documentPath ? window.mux.fs.openExternal(pane.documentPath) : window.mux.browser.openExternal(surfaceId(pane)));
 
   const viewport = document.createElement('div');
   viewport.className = 'browser-viewport';
@@ -1206,6 +1225,16 @@ function initBrowserPane(ws, pane, opts) {
   // cannot race a later animation frame that creates the browser.
   pane.browserReady = window.mux.browser.create({ id: pane.id, url: pane.currentUrl, zoomFactor: pane.zoom });
   pane.browserReady.then(() => { if (!pane.disposed) requestBrowserSync(); });
+  pane.loadRestoredDocument = () => {
+    if (!pane.restoreDocumentUrl || pane.restoringDocument) return;
+    pane.restoringDocument = true;
+    window.mux.app.allowRoot(ws.cwd).then(() => window.mux.app.prepareDocument(ws.cwd, pane.restoreDocumentUrl)).then(result => {
+      if (pane.disposed) return;
+      if (!result.ok) { updateBrowserChrome(ws, pane, { id: pane.id, url: '', title: '', loading: false, error: result.error }); return; }
+      pane.documentPath = result.path; pane.urlInput.value = result.path; pane.restoreDocumentUrl = '';
+      return pane.browserReady.then(created => created?.ok && window.mux.browser.navigate(pane.id, result.url));
+    }).catch(() => { if (!pane.disposed) updateBrowserChrome(ws, pane, { id: pane.id, url: '', title: '', loading: false, error: 'Could not open this file.' }); }).finally(() => { pane.restoringDocument = false; });
+  };
   requestAnimationFrame(() => {
     if (pane.disposed || pane.type !== 'browser' || pane.browserSurface !== surface || !pane.tile.isConnected) return;
     if (pane.currentUrl) setPaneTitle(pane, safeHost(pane.currentUrl));
@@ -1249,7 +1278,7 @@ function syncBrowserBounds() {
       const bottom = Math.min(viewportRect.bottom, bodyRect.bottom, tileRect.bottom, window.innerHeight);
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
-      const visible = ws === active && pane.owner.activeTab === pane && !overlayOpen && !draggedTab && !pane.hasError && !pane.owner.tile.classList.contains('pane-closing');
+      const visible = !pane.parked && ws === active && pane.owner.activeTab === pane && !overlayOpen && !draggedTab && !pane.hasError && !pane.owner.tile.classList.contains('pane-closing');
       const onscreen = visible && width > 0 && height > 0;
       window.mux.browser.setBounds({
         id: pane.id,
@@ -1290,7 +1319,7 @@ window.mux.app.onWindowGeometryChange(() => {
 // Panes own layout; tabs own sessions and page state. Compatibility accessors
 // let pane actions operate on the selected tab while callbacks retain their tab.
 function surfaceId(pane) { return (pane.activeTab || pane).id; }
-function workspaceTabs(ws) { return ws.panes.flatMap((pane) => pane.tabs); }
+function workspaceTabs(ws) { return [...ws.panes.flatMap((pane) => pane.tabs), ...(ws.parkedTabs || [])]; }
 
 let draggedTab = null, draggedConversation = null;
 
@@ -1305,7 +1334,7 @@ function finishTabDrag() {
 
 function installTabDropTarget(element, pane, getIndex) {
   const accepts = () => draggedTab && draggedTab.owner.ws === pane.ws
-    && (draggedTab.owner === pane || pane.tabs.length < MAX_PANE_TABS);
+    && (draggedTab.owner === pane || (draggedTab.type === 'browser' && pane.type === 'browser' && pane.tabs.length < MAX_PANE_TABS));
   const dropIndex = (event) => {
     if (!getIndex) return pane.tabs.length;
     const rect = element.getBoundingClientRect();
@@ -1339,7 +1368,7 @@ function installTabDropTarget(element, pane, getIndex) {
 function movePaneTab(tab, target, index, focus = true) {
   const source = tab.owner;
   const ws = source.ws;
-  if (ws.closingPane || target.ws.closingPane || (source !== target && target.tabs.length >= MAX_PANE_TABS)) return;
+  if (ws.closingPane || target.ws.closingPane || (source !== target && (tab.type !== 'browser' || target.type !== 'browser' || target.tabs.length >= MAX_PANE_TABS))) return;
   const from = source.tabs.indexOf(tab);
   if (from < 0) return;
   hidePaneBanner(tab);
@@ -1383,7 +1412,7 @@ function tabMoveMenu(pane, tab) {
     { label: 'Move tab right', disabled: index === pane.tabs.length - 1, action: () => movePaneTab(tab, pane, index + 2) },
     ...pane.ws.panes.filter((target) => target !== pane).map((target) => ({
       label: `Move to pane ${pane.ws.panes.indexOf(target) + 1}`,
-      disabled: target.tabs.length >= MAX_PANE_TABS,
+      disabled: tab.type !== 'browser' || target.type !== 'browser' || target.tabs.length >= MAX_PANE_TABS,
       action: () => movePaneTab(tab, target, target.tabs.length),
     })),
     'sep',
@@ -1468,7 +1497,7 @@ function activateTab(ws, pane, tab, focus = true) {
   if (!pane.tabs.includes(tab)) return;
   if (pane.activeTab) hidePaneBanner(pane.activeTab);
   pane.activeTab = tab;
-  if (ws.id === state.activeId) tab.startChat?.();
+  if (ws.id === state.activeId) { tab.startChat?.(); tab.loadRestoredDocument?.(); }
   pane.tabs.forEach((item) => item.body.classList.toggle('tab-hidden', item !== tab));
   updatePaneSurfaceChrome(pane);
   if (tab.type === 'terminal' && tab.status !== 'live') setPaneStatus(ws, tab, tab.status);
@@ -1484,11 +1513,61 @@ function activateTab(ws, pane, tab, focus = true) {
   saveWorkspaces();
 }
 
+function isChatWebLink(target) { return /^https?:\/\//i.test(target); }
+function openChatTarget(ws, sourcePane, cwd, target, destination = 'tab', selectedPane = null) {
+  if (/^mailto:/i.test(target)) { window.mux.app.openChatLink(target); return; }
+  const ready = isChatWebLink(target) || /^synthesis-doc:\/\//i.test(target)
+    ? Promise.resolve({ ok: true, url: target }) : window.mux.app.prepareDocument(cwd, target);
+  ready.then(result => {
+    if (!result.ok) { window.alert(result.error || 'Could not open this file.'); return; }
+    if (!state.workspaces.includes(ws) || !ws.panes.includes(sourcePane)) return;
+    if (destination === 'right' || destination === 'down') splitPane(ws, sourcePane, destination === 'right' ? 'row' : 'col', 'browser', { url: result.url, documentPath: result.path });
+    else {
+      const pane = selectedPane && ws.panes.includes(selectedPane) ? selectedPane : sourcePane;
+      if (pane.tabs.length >= MAX_PANE_TABS) return;
+      if (ws.id !== state.activeId) setActive(ws.id, { startChats: false });
+      addPaneTab(ws, pane, { type: 'browser', url: result.url, documentPath: result.path });
+    }
+  }).catch(() => window.alert('Could not open this link.'));
+}
+function chatLinkMenu(ws, pane, cwd, target, x, y) {
+  const local = !isChatWebLink(target) && !/^mailto:/i.test(target) && !/^synthesis-doc:/i.test(target);
+  const items = [
+    { label: 'Open in this pane', action: () => openChatTarget(ws, pane, cwd, target) },
+    { label: 'Open in split right', action: () => openChatTarget(ws, pane, cwd, target, 'right') },
+    { label: 'Open in split below', action: () => openChatTarget(ws, pane, cwd, target, 'down') },
+    ...ws.panes.filter(other => other !== pane).map(other => ({ label: `Open in pane ${ws.panes.indexOf(other) + 1}`, disabled: other.tabs.length >= MAX_PANE_TABS, action: () => openChatTarget(ws, pane, cwd, target, 'pane', other) })),
+    'sep',
+    { label: local ? 'Copy file path' : 'Copy link', action: () => navigator.clipboard.writeText(target) },
+  ];
+  if (local) items.push({ label: 'Show in Finder', action: async () => { const result = await window.mux.app.prepareDocument(cwd, target); if (result.ok) window.mux.fs.reveal(result.path); else window.alert(result.error || 'Could not find this file.'); } });
+  else if (isChatWebLink(target)) items.push({ label: 'Open in default browser', action: () => window.mux.app.openChatLink(target) });
+  showMenu(x, y, items);
+}
+function linkifyChatFiles(root) {
+  const matcher = /(?:~\/|\/|\.\.?\/)?[\w.@+~%-]+(?:\/[\w.@+~%-]+)*\.(?:markdown|md|html?|pdf|txt|json|png|jpe?g|gif|webp|csv|xml|ya?ml|py|tsx?|jsx?|css|rs|go|java|sh|cpp|c|h)(?:#(?:L\d+|[\w-]+))?/gi;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    if (node.parentElement.closest('a, pre')) continue;
+    const value = node.nodeValue;
+    const matches = node.parentElement.tagName === 'CODE' && /\.(?:markdown|md|html?|pdf|txt|json|png|jpe?g|gif|webp|csv|xml|ya?ml|py|tsx?|jsx?|css|rs|go|java|sh|cpp|c|h)(?:#L\d+)?$/i.test(value.trim()) ? [{ index: value.indexOf(value.trim()), 0: value.trim() }] : [...value.matchAll(matcher)];
+    if (!matches.length) continue;
+    const fragment = document.createDocumentFragment(); let offset = 0;
+    for (const match of matches) {
+      fragment.append(document.createTextNode(value.slice(offset, match.index)));
+      const anchor = document.createElement('a'); anchor.setAttribute('href', match[0]); anchor.textContent = match[0]; fragment.append(anchor);
+      offset = match.index + match[0].length;
+    }
+    fragment.append(document.createTextNode(value.slice(offset))); node.replaceWith(fragment);
+  }
+}
+
 function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-attachments" aria-label="Attachments" hidden></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-list"></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1507,6 +1586,9 @@ function initChatPane(ws, tab) {
   const modelMenu = form.querySelector('.chat-model-menu');
   const modelSearch = form.querySelector('.chat-model-search');
   const modelList = form.querySelector('.chat-model-list');
+  const modelNav = form.querySelector('.chat-model-nav');
+  const modelHeading = form.querySelector('.chat-model-list-heading');
+  let modelFilter = 'all';
   const favoriteKey = 'synthesis.chat.favoriteModels';
   let models = [];
   function favorites() { try { const values = JSON.parse(localStorage.getItem(favoriteKey) || '[]'); return new Set(Array.isArray(values) ? values.filter(x => typeof x === 'string') : []); } catch { return new Set(); } }
@@ -1518,11 +1600,18 @@ function initChatPane(ws, tab) {
     modelList.replaceChildren();
     const saved = favorites(); const query = modelSearch.value.trim().toLowerCase();
     const filtered = models.filter(m => `${m.name || ''} ${m.id} ${m.provider}`.toLowerCase().includes(query));
-    const groups = [['Favourites', filtered.filter(m => saved.has(modelKey(m)))], ['All models', filtered.filter(m => !saved.has(modelKey(m)))]];
-    if (!filtered.length) { const empty = document.createElement('div'); empty.className = 'chat-model-empty'; empty.textContent = models.length ? 'No matching models' : 'No models available'; modelList.append(empty); return; }
-    for (const [label, items] of groups) {
-      if (!items.length) continue;
-      const heading = document.createElement('div'); heading.className = 'chat-model-group'; heading.textContent = label; modelList.append(heading);
+    modelNav.replaceChildren();
+    const providers = [...new Set(models.map(m => m.provider))].sort((a, b) => providerName(a).localeCompare(providerName(b)));
+    const filters = [['all', 'All models', models.length], ['favorites', 'Favourites', models.filter(m => saved.has(modelKey(m))).length], ...providers.map(p => [p, providerName(p), models.filter(m => m.provider === p).length])];
+    for (const [id, label, count] of filters) {
+      const nav = document.createElement('button'); nav.type = 'button'; nav.className = 'chat-model-nav-item'; nav.classList.toggle('active', modelFilter === id); nav.setAttribute('aria-pressed', String(modelFilter === id));
+      const name = document.createElement('span'); name.textContent = label; const number = document.createElement('span'); number.className = 'chat-model-nav-count'; number.textContent = count; nav.append(name, number);
+      nav.addEventListener('click', () => { modelFilter = id; renderModels(); }); modelNav.append(nav);
+    }
+    const items = filtered.filter(m => modelFilter === 'all' || (modelFilter === 'favorites' ? saved.has(modelKey(m)) : m.provider === modelFilter));
+    modelHeading.textContent = (filters.find(([id]) => id === modelFilter)?.[1] || 'All models') + ' · ' + items.length;
+    if (!items.length) { const empty = document.createElement('div'); empty.className = 'chat-model-empty'; empty.textContent = query ? 'No matching models' : modelFilter === 'favorites' ? 'No favourites yet' : 'No models available'; modelList.append(empty); return; }
+    {
       for (const model of items) {
         const key = modelKey(model); const row = document.createElement('div'); row.className = 'chat-model-row';
         const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'chat-model-option';
@@ -1559,7 +1648,7 @@ function initChatPane(ws, tab) {
   const dismissReasoning = event => { if (!form.querySelector('.chat-reasoning-picker').contains(event.target)) closeReasoning(); };
   document.addEventListener('pointerdown', dismissReasoning);
   tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissReasoning));
-  const attachmentList = form.querySelector('.chat-attachments');
+  const attachmentList = tab.body.querySelector('.chat-attachments');
   const attachButton = form.querySelector('.chat-attach');
   let attachments = [], pastedImages = [], pendingImages = 0, currentReasoning = 'off';
   const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -1640,11 +1729,20 @@ function initChatPane(ws, tab) {
       const icon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
       copy.innerHTML = icon; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(body.raw || ''); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.title = 'Copied'; copy.setAttribute('aria-label', 'Response copied'); setTimeout(() => { if (copy.isConnected) { copy.innerHTML = icon; copy.title = 'Copy response'; copy.setAttribute('aria-label', 'Copy response'); } }, 2000); } catch { copy.title = 'Copy failed'; copy.setAttribute('aria-label', 'Copy failed'); } }); row.append(copy);
     }
-    (historyFragment || messages).append(row); body.raw = content || ''; renderText(body, content || '');
+    (historyFragment || messages).append(row);
+    let displayContent = content || ''; const filePaths = [];
+    if (role === 'user') {
+      const match = displayContent.match(/(?:^|\n\n)Attached files and folders \(use these paths\):\n((?:- "[^\n]*"(?:\n|$))+)$/);
+      if (match) { for (const line of match[1].trim().split('\n')) { try { const path = JSON.parse(line.slice(2)); if (typeof path === 'string') filePaths.push(path); } catch {} } if (filePaths.length) displayContent = displayContent.slice(0, match.index); }
+    }
+    body.raw = displayContent; renderText(body, displayContent);
+    const previews = document.createElement('div'); previews.className = 'chat-message-attachments';
+    for (const path of filePaths) { const chip = document.createElement('span'); chip.className = 'chat-message-file'; chip.textContent = path.split('/').filter(Boolean).pop() || path; chip.title = path; previews.append(chip); }
     for (const item of images) {
       if (!imageTypes.has(item.mimeType) || typeof item.data !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data)) continue;
-      const image = document.createElement('img'); image.className = 'chat-message-image'; image.alt = 'Attached image'; image.src = `data:${item.mimeType};base64,${item.data}`; body.append(image);
+      const image = document.createElement('img'); image.className = 'chat-message-image'; image.alt = 'Attached image'; image.src = `data:${item.mimeType};base64,${item.data}`; previews.append(image);
     }
+    if (previews.childNodes.length) body.append(previews);
     if (!historyFragment) scroll.scrollTop = scroll.scrollHeight; return body;
   }
   function renderText(el, value) {
@@ -1652,13 +1750,15 @@ function initChatPane(ws, tab) {
     const html = marked.parse(String(value), { gfm: true, breaks: false });
     el.innerHTML = DOMPurify.sanitize(html, {
       ALLOWED_TAGS: ['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-      ALLOWED_ATTR: ['href', 'title', 'start'], ALLOW_DATA_ATTR: false
+      ALLOWED_ATTR: ['href', 'title', 'start'], ALLOW_DATA_ATTR: false,
+      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|[^a-z]|[a-z][a-z0-9+.-]*(?:[^a-z0-9+.-:]|$))/i
     });
+    linkifyChatFiles(el);
     for (const link of el.querySelectorAll('a')) {
       const href = link.getAttribute('href') || '';
-      let valid = false; try { valid = ['http:', 'https:', 'mailto:'].includes(new URL(href).protocol); } catch {}
-      if (!valid) { link.removeAttribute('href'); continue; }
-      link.addEventListener('click', event => { event.preventDefault(); window.mux.app.openChatLink(href); });
+      if (!href || (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^(https?|mailto|file):/i.test(href))) { link.removeAttribute('href'); continue; }
+      link.addEventListener('click', event => { event.preventDefault(); openChatTarget(tab.owner.ws, tab.owner, chatCwd, href); });
+      link.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); chatLinkMenu(tab.owner.ws, tab.owner, chatCwd, href, event.clientX, event.clientY); });
     }
     for (const pre of el.querySelectorAll('pre')) {
       const raw = pre.querySelector('code')?.textContent || pre.textContent;
@@ -1674,27 +1774,44 @@ function initChatPane(ws, tab) {
   function textOf(message) { return typeof message.content === 'string' ? message.content : (message.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n'); }
   function imagesOf(message) { return Array.isArray(message.content) ? message.content.filter(x => x.type === 'image' && imageTypes.has(x.mimeType) && typeof x.data === 'string') : []; }
   function command(type, extra = {}) { window.mux.chat.command(tab.id, { type, ...extra }); }
+  let agentHistoryLoaded = false, previewMessages = null;
+  function displayHistory(history) {
+    welcome.hidden = false; turnCount = 0; historyFragment = document.createDocumentFragment();
+    const meta = chatMeta(tab.sessionPath || tab.id), durations = meta.durations || {};
+    for (const m of history) {
+      if (m.role === 'user' || m.role === 'assistant') {
+        const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []);
+        if (m.role === 'user' && text) {
+          turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]);
+          tab.hasConversation = true;
+          if (tab.title === 'Chat') setPaneTitle(tab, meta.title || text.replace(/\s+/g, ' ').slice(0, 45));
+        }
+      } else if (m.role === 'toolResult' && m.toolName === 'rich_text') {
+        const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text);
+      }
+    }
+    messages.replaceChildren(historyFragment); historyFragment = null;
+    if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath);
+    scroll.scrollTop = scroll.scrollHeight;
+  }
+  function sameVisibleHistory(a, b) {
+    const visible = history => history.filter(m => ['user', 'assistant'].includes(m.role) || (m.role === 'toolResult' && m.toolName === 'rich_text'));
+    const left = visible(a), right = visible(b);
+    return left.length === right.length && left.every((m, i) => {
+      const other = right[i];
+      const text = item => item.role === 'toolResult' ? chatRichText.resultText(item) : textOf(item);
+      const images = imagesOf(m), otherImages = imagesOf(other);
+      return m.role === other.role && !!m.isError === !!other.isError && text(m) === text(other) && images.length === otherImages.length && images.every((image, j) => image.mimeType === otherImages[j].mimeType && image.data === otherImages[j].data);
+    });
+  }
   function onChatEvent(event) {
     if (event.type === 'response' && event.command === 'get_messages') {
       ready = event.success;
+      agentHistoryLoaded = true;
       if (event.success) {
-        welcome.hidden = false; turnCount = 0; historyFragment = document.createDocumentFragment();
-        const meta = chatMeta(tab.sessionPath || tab.id), durations = meta.durations || {};
-        for (const m of event.data.messages || []) {
-          if (m.role === 'user' || m.role === 'assistant') {
-            const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []);
-            if (m.role === 'user' && text) {
-              turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]);
-              tab.hasConversation = true;
-              if (tab.title === 'Chat') setPaneTitle(tab, meta.title || text.replace(/\s+/g, ' ').slice(0, 45));
-            }
-          } else if (m.role === 'toolResult' && m.toolName === 'rich_text') {
-            const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text);
-          }
-        }
-        messages.replaceChildren(historyFragment); historyFragment = null;
-        if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath);
-        scroll.scrollTop = scroll.scrollHeight;
+        const history = event.data.messages || [];
+        if (!previewMessages || !sameVisibleHistory(previewMessages, history)) displayHistory(history);
+        previewMessages = null;
       }
       else add('error', event.error || 'Could not load this chat.'); update(); renderList();
     } else if (event.type === 'response' && event.command === 'get_available_models') {
@@ -1742,6 +1859,14 @@ function initChatPane(ws, tab) {
   tab.startChat = () => {
     if (tab.disposed || tab.chatStarted) return;
     tab.chatStarted = true;
+    if (tab.sessionPath) {
+      welcome.hidden = true;
+      window.mux.chat.history(chatCwd, tab.sessionPath).then(result => {
+        if (tab.disposed || agentHistoryLoaded || !result.ok) return;
+        previewMessages = result.messages;
+        displayHistory(result.messages); renderList();
+      }).catch(() => {});
+    }
     tab.unsubs.push(window.mux.chat.onEvent(tab.id, onChatEvent));
     window.mux.app.allowRoot(chatCwd).then(() => tab.disposed ? null : window.mux.chat.start(tab.id, chatCwd, tab.sessionPath)).then(result => {
       if (tab.disposed) { window.mux.chat.stop(tab.id); return; }
@@ -1753,6 +1878,9 @@ function initChatPane(ws, tab) {
 function addPaneTab(ws, pane, opts = {}, activate = true) {
   if (pane.tabs.length >= MAX_PANE_TABS && !opts.restore) return null;
   const type = ['browser', 'chat'].includes(opts.type) ? opts.type : 'terminal';
+  if (!opts.restore && type !== 'terminal' && pane.tabs.some(tab => tab.type !== 'terminal') && (type === 'chat' || pane.tabs.some(tab => tab.type === 'chat'))) {
+    for (const tab of [...pane.tabs]) if (tab.type !== 'terminal') parkTab(tab);
+  }
   const id = opts.id || 'tab-' + crypto.randomUUID();
   const body = document.createElement('div');
   body.className = 'pane-body tab-hidden';
@@ -1819,6 +1947,7 @@ function createPane(ws, opts = {}) {
   }
   if (!pane.tabs.some((tab) => tab.type !== 'terminal')) addPaneTab(ws, pane, { type: 'chat' }, false);
   pane.activeTab = pane.tabs.find((tab) => tab.id === opts.activeTabId && tab.type !== 'terminal') || pane.tabs.find((tab) => tab.type !== 'terminal');
+  for (const tab of [...pane.tabs]) if (tab.type !== 'terminal' && tab !== pane.activeTab && (pane.activeTab.type === 'chat' || tab.type === 'chat')) parkTab(tab);
   pane.tabs.forEach((tab) => tab.body.classList.toggle('tab-hidden', tab !== pane.activeTab));
   const actions = buildPaneActions(ws, pane);
   const strip = document.createElement('div');
@@ -1837,7 +1966,20 @@ function createPane(ws, opts = {}) {
   tile.addEventListener('drop', event => {
     const row = draggedConversation; if (!row || pane.tabs.length >= MAX_PANE_TABS) return;
     event.preventDefault(); event.stopPropagation(); draggedConversation = null; tile.classList.remove('tab-drop-target');
-    if (row.tab) movePaneTab(row.tab, pane, pane.tabs.length);
+    if (row.tab) { if (row.tab.owner !== pane || row.tab.parked) {
+      const source = row.tab.owner, sourceWs = source.ws;
+      if (!row.tab.parked) {
+        parkTab(row.tab);
+        if (!source.tabs.some(item => item.type !== 'terminal')) {
+          if (sourceWs.panes.length > 1) {
+            const found = findLeaf(sourceWs.tree, source);
+            if (found?.parent) { found.parent.children.splice(found.index, 1); found.parent.weights?.splice(found.index, 1); sourceWs.tree = collapseSplits(sourceWs.tree); }
+            source.layoutObserver?.disconnect(); source.tile.remove(); sourceWs.panes.splice(sourceWs.panes.indexOf(source), 1); sourceWs.activePaneIdx = Math.max(0, Math.min(sourceWs.activePaneIdx, sourceWs.panes.length - 1)); refreshView(sourceWs);
+          } else addPaneTab(sourceWs, source, { type: 'chat' }, false);
+        }
+      }
+      restoreParkedTab(row.tab, pane);
+    } }
     else addPaneTab(pane.ws, pane, { type: 'chat', sessionPath: row.session.path, chatCwd: row.ws.cwd, projectId: row.ws.id });
     syncBrowserBounds(); renderList();
   });
@@ -1913,7 +2055,7 @@ function layoutToTree(layout, panesById) {
 
 function tabSnapshot(tab, ws) {
   return tab.type === 'chat' ? { id: tab.id, type: 'chat', ...(tab.sessionPath && (tab.hasConversation || readLocalMap(OWNED_CHATS_KEY)[tab.sessionPath]) ? { sessionPath: tab.sessionPath } : {}), ...(tab.chatCwd !== ws.cwd ? { chatCwd: tab.chatCwd } : {}), ...(tab.projectId !== ws.id ? { projectId: tab.projectId } : {}) } : tab.type === 'browser'
-    ? { id: tab.id, type: 'browser', url: tab.currentUrl || '', zoom: tab.zoom || 1, profileId: 'default' }
+    ? { id: tab.id, type: 'browser', url: tab.restoreDocumentUrl || (tab.documentPath && tab.currentUrl.startsWith('synthesis-doc:') ? 'file://' + encodeURIComponent(tab.documentPath).replace(/%2F/gi, '/') : tab.currentUrl || ''), zoom: tab.zoom || 1, profileId: 'default' }
     : { id: tab.id, type: 'terminal', cwd: ws.cwd };
 }
 
@@ -1924,7 +2066,7 @@ function buildSnapshot() {
     workspaces: state.workspaces.map((w) => {
       const activePane = w.panes[w.activePaneIdx] || w.panes[0];
       // Persist tabs and session identities, but not their temporary split layout.
-      const tabs = w.panes.flatMap(pane => pane.tabs.map(tab => tabSnapshot(tab, w)));
+      const tabs = workspaceTabs(w).map(tab => tabSnapshot(tab, w));
       const active = activePane.activeTab;
       return {
         id: w.id, name: w.name, cwd: w.cwd, fileDir: w.fileDir,
@@ -2019,6 +2161,7 @@ function closeWorkspace(id, { confirmed = false } = {}) {
   if (!confirmed && appSettings.confirmClose && !window.confirm(`Close “${ws.name}”? Its running terminal processes will be stopped.`)) return;
   if (ws.activityTimer) clearTimeout(ws.activityTimer);
   for (const p of ws.panes) disposePane(p);
+  for (const tab of ws.parkedTabs || []) disposeTab(tab);
   ws.view.remove();
   state.workspaces.splice(idx, 1);
   saveWorkspaces();
@@ -2102,9 +2245,20 @@ function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[
 function moveChatMeta(from, to) { const all = readLocalMap(CHAT_META_KEY); if (all[from]) { all[to] = { ...all[to], ...all[from] }; delete all[from]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); } }
 function isScratch(ws) { return !!readLocalMap(SCRATCH_KEY)[ws.id]; }
 function setScratch(ws, value) { const all = readLocalMap(SCRATCH_KEY); if (value) all[ws.id] = true; else delete all[ws.id]; localStorage.setItem(SCRATCH_KEY, JSON.stringify(all)); }
+let chatPreloadTimer = null, lastChatPreload = '';
+function scheduleChatPreload() {
+  clearTimeout(chatPreloadTimer);
+  chatPreloadTimer = setTimeout(() => {
+    const recent = conversationRows().filter(row => row.session || row.tab?.sessionPath).sort((a, b) => b.modified - a.modified).slice(0, 3);
+    const key = JSON.stringify(recent.map(row => [row.key, row.modified]));
+    if (key === lastChatPreload) return;
+    lastChatPreload = key;
+    window.mux.chat.preload(recent.map(row => ({ cwd: row.tab?.chatCwd || row.ws.cwd, sessionPath: row.tab?.sessionPath || row.session.path }))).catch(() => {});
+  }, 120);
+}
 async function refreshProjectChats(ws) {
   const cwd = ws.cwd;
-  try { const sessions = await window.mux.chat.sessions(cwd, Object.keys(readLocalMap(OWNED_CHATS_KEY))); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); } } catch {}
+  try { const sessions = await window.mux.chat.sessions(cwd, Object.keys(readLocalMap(OWNED_CHATS_KEY))); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); scheduleChatPreload(); } } catch {}
 }
 function conversationRows() {
   const rows = [], owned = readLocalMap(OWNED_CHATS_KEY), meta = readLocalMap(CHAT_META_KEY);
@@ -2132,9 +2286,9 @@ function conversationRows() {
 }
 function openConversation(row) {
   if (row.tab) {
-    const ownerWs = row.tab.owner.ws, target = row.tab.owner;
+    const ownerWs = row.tab.owner.ws, target = row.tab.parked ? ownerWs.panes[ownerWs.activePaneIdx] : row.tab.owner;
     flattenWorkspacePanes(ownerWs, target);
-    setActive(ownerWs.id, { startChats: false }); activateTab(ownerWs, target, row.tab); return;
+    setActive(ownerWs.id, { startChats: false }); if (row.tab.parked) restoreParkedTab(row.tab, target); else activateTab(ownerWs, target, row.tab); return;
   }
   const target = row.ws.panes[row.ws.activePaneIdx];
   flattenWorkspacePanes(row.ws, target);
@@ -2168,7 +2322,8 @@ function conversationMenu(row, x, y) {
       const target = row.tab; const sessionPath = target?.sessionPath || row.session?.path;
       if (target?.isWorking) { window.alert('Stop this chat before deleting it.'); return; }
       if (sessionPath) { const result = await window.mux.chat.remove(target?.chatCwd || row.ws.cwd, sessionPath); if (!result.ok) { window.alert(result.error || 'Could not delete this chat.'); return; } }
-      if (target) { const pane = target.owner; const index = pane.tabs.indexOf(target); if (index >= 0) pane.tabs.splice(index, 1); disposeTab(target); if (!pane.tabs.length) addPaneTab(pane.ws, pane, { type: 'chat' }, false); if (pane.activeTab === target) pane.activeTab = pane.tabs.find(item => item.type !== 'terminal') || pane.tabs[0]; activateTab(pane.ws, pane, pane.activeTab); }
+      if (target?.parked) { const index = target.owner.ws.parkedTabs.indexOf(target); if (index >= 0) target.owner.ws.parkedTabs.splice(index, 1); disposeTab(target); }
+      else if (target) { const pane = target.owner; const index = pane.tabs.indexOf(target); if (index >= 0) pane.tabs.splice(index, 1); disposeTab(target); if (!pane.tabs.length) addPaneTab(pane.ws, pane, { type: 'chat' }, false); if (pane.activeTab === target) pane.activeTab = pane.tabs.find(item => item.type !== 'terminal') || pane.tabs[0]; activateTab(pane.ws, pane, pane.activeTab); }
       const owned = readLocalMap(OWNED_CHATS_KEY); delete owned[sessionPath]; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned));
       const meta = readLocalMap(CHAT_META_KEY); delete meta[row.key]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(meta));
       await refreshProjectChats(row.ws); renderList(); saveWorkspaces();
@@ -2807,8 +2962,7 @@ async function openPicker() {
 function paneMenu(ws, pane) {
   const isMultiple = ws.panes.length > 1;
   const items = [
-    { label: 'Add New Chat Tab', disabled: pane.tabs.length >= MAX_PANE_TABS, action: () => addPaneTab(ws, pane, { type: 'chat' }) },
-    { label: 'New Browser Tab', disabled: pane.tabs.length >= MAX_PANE_TABS, action: () => addPaneTab(ws, pane, { type: 'browser' }) },
+    { label: 'New Browser Tab', disabled: pane.type !== 'browser' || pane.tabs.length >= MAX_PANE_TABS, action: () => addPaneTab(ws, pane, { type: 'browser' }) },
     { label: 'Close Tab', action: () => closePaneTab(ws, pane, pane.activeTab) },
     'sep',
     { label: 'Split Right', hint: '→', action: () => splitPane(ws, pane, 'row') },
@@ -3613,12 +3767,13 @@ window.mux.browser.onNewTab(({ id, url }) => {
   }
 });
 
-window.mux.browser.onContextMenu(({ id, x, y }) => {
+window.mux.browser.onContextMenu(({ id, x, y, linkURL }) => {
   const ws = activeWs();
   if (!ws) return;
   const index = ws.panes.findIndex((pane) => pane.activeTab.id === id);
   if (index < 0) return;
   setActivePane(ws, index);
+  if (linkURL && /^(https?:|synthesis-doc:)/i.test(linkURL)) { chatLinkMenu(ws, ws.panes[index], ws.cwd, linkURL, x, y); return; }
   showMenu(x, y, paneMenu(ws, ws.panes[index]));
 });
 

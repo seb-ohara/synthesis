@@ -26,9 +26,13 @@ test('pasted image is previewed, submitted to Pi, and restored with the message'
     input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
   }, PNG);
   await page.waitForSelector('.chat-image-attachment img');
+  assert.equal(await page.locator('.chat-composer .chat-attachments').count(), 0);
+  assert.equal(await page.locator('.chat-body > .chat-attachments .chat-image-attachment').count(), 1);
   await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-send').disabled);
   await page.locator('.ws-view.active .chat-send').click();
   await page.waitForFunction(() => document.querySelector('.chat-message.user .chat-message-image')?.complete);
+  const preview = await page.locator('.chat-message.user .chat-message-image').evaluate(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height, parent: el.parentElement.className }));
+  assert.deepEqual(preview, { width: 64, height: 52, parent: 'chat-message-attachments' });
   const prompts = await app.evaluate(() => globalThis.__pastePrompts);
   assert.equal(prompts.length, 1); assert.equal(prompts[0].images[0].type, 'image');
   assert.equal(prompts[0].images[0].mimeType, 'image/png'); assert.equal(prompts[0].images[0].data, PNG);

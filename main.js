@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, session } = require('electron');
+protocol.registerSchemesAsPrivileged([{ scheme: 'synthesis-doc', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -162,6 +163,28 @@ ipcMain.handle('chat:sessions', (_e, cwd, ownedPaths) => {
   // access every restored project folder (which can trigger macOS privacy prompts).
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096 || !Array.isArray(ownedPaths)) return [];
   return chatSessions(path.normalize(cwd), ownedPaths);
+});
+const chatHistoryReader = require('./lib/chat-history').createHistoryReader();
+async function readChatHistory(cwd, sessionPath) {
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096 || !(await validChatSession(cwd, sessionPath))) throw new Error('Saved chat not found in this workspace');
+  return chatHistoryReader.load(cwd, sessionPath);
+}
+ipcMain.handle('chat:history', async (_event, { cwd, sessionPath }) => {
+  try { return { ok: true, messages: await readChatHistory(cwd, sessionPath) }; }
+  catch { return { ok: false }; } // Agent loading is the fallback for older/large sessions.
+});
+let chatWarmupRunning = false, chatWarmupNext = null;
+ipcMain.handle('chat:preload', async (_event, requests) => {
+  if (!Array.isArray(requests)) return;
+  chatWarmupNext = requests.slice(0, 3);
+  if (chatWarmupRunning) return;
+  chatWarmupRunning = true;
+  try {
+    while (chatWarmupNext) {
+      const batch = chatWarmupNext; chatWarmupNext = null;
+      for (const item of batch) { try { await readChatHistory(item.cwd, item.sessionPath); } catch {} }
+    }
+  } finally { chatWarmupRunning = false; }
 });
 ipcMain.handle('chat:start', async (event, { id, cwd, sessionPath }) => {
   if (!validSessionId(id)) return { ok: false, error: 'Invalid chat ID' };
@@ -516,7 +539,12 @@ ipcMain.on('app:tab-shortcuts', (event, bindings) => {
     typeof bindings[action] === 'string' && bindings[action].length < 100 ? bindings[action] : '',
   ]));
 });
-const browserManager = createBrowserManager({ getWindow: () => win, getTabShortcuts: () => tabShortcuts });
+const documents = require('./lib/document-protocol').createDocumentProtocol(pathGuard);
+const browserManager = createBrowserManager({ getWindow: () => win, getTabShortcuts: () => tabShortcuts, isDocumentUrl: documents.owns, documentPath: documents.documentPath });
+ipcMain.handle('app:prepareDocument', async (_event, { cwd, path: target }) => {
+  try { return { ok: true, ...(await documents.prepare(cwd, target)) }; }
+  catch (error) { return { ok: false, error: error.message }; }
+});
 
 ipcMain.handle('browser:create', (_e, opts) => {
   const { id, url, zoomFactor } = opts || {};
@@ -623,6 +651,7 @@ ipcMain.handle('dialog:pick', async () => {
 /* ---------------- App lifecycle ---------------- */
 
 app.whenReady().then(() => {
+  session.fromPartition('persist:synthesis-browser').protocol.handle('synthesis-doc', documents.handle);
   getSupportDir();
   createWindow();
   connectDaemon(); // warm up early; sessions may be waiting to reattach

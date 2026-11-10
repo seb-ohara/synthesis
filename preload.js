@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('mux', {
   git: { status: cwd => ipcRenderer.invoke('git:status', cwd), review: (cwd, scope, ref) => ipcRenderer.invoke('git:review', { cwd, scope, ref }), action: (cwd, action, data) => ipcRenderer.invoke('git:action', { cwd, action, data }), github: (cwd, action) => ipcRenderer.invoke('git:github', { cwd, action }), commitAuto: (cwd, action, model, expectedBranch) => ipcRenderer.invoke('git:commitAuto', { cwd, action, model, expectedBranch }), openFinder: cwd => ipcRenderer.invoke('git:openFinder', cwd) },
   fonts: { list: (includeSystem) => ipcRenderer.invoke('fonts:list', includeSystem), import: () => ipcRenderer.invoke('fonts:import') },
   chat: {
+    history: (cwd, sessionPath) => ipcRenderer.invoke('chat:history', { cwd, sessionPath }),
+    preload: requests => ipcRenderer.invoke('chat:preload', requests),
     start: (id, cwd, sessionPath) => ipcRenderer.invoke('chat:start', { id, cwd, sessionPath }),
     sessions: (cwd, ownedPaths) => ipcRenderer.invoke('chat:sessions', cwd, ownedPaths),
     createScratch: () => ipcRenderer.invoke('chat:createScratch'),
@@ -85,6 +87,7 @@ contextBridge.exposeInMainWorld('mux', {
   },
   app: {
     openChatLink: (url) => ipcRenderer.invoke('app:openChatLink', url),
+    prepareDocument: (cwd, path) => ipcRenderer.invoke('app:prepareDocument', { cwd, path }),
     setTabShortcuts: (bindings) => ipcRenderer.send('app:tab-shortcuts', bindings),
     onTabCommand: (cb) => {
       const h = (_e, message) => cb(message);
