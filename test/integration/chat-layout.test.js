@@ -75,12 +75,12 @@ test('closing the last tab closes its split while preserving the final pane', as
   await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
   const split = page.locator('.ws-view.active .tile').last();
   assert.equal(await split.locator('.pane-tab').count(), 1);
-  await split.locator('.pane-tab-close').click();
+  await split.locator('.pane-close').click();
   await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 1);
   const paneWidth = await page.locator('.ws-view.active .tile').evaluate(el => el.getBoundingClientRect().width);
   const centerWidth = await page.locator('#center').evaluate(el => el.getBoundingClientRect().width);
   assert.ok(Math.abs(paneWidth - centerWidth) < 2);
-  await page.locator('.ws-view.active .pane-tab-close').click();
+  await page.locator('.ws-view.active .pane-close').click();
   assert.equal(await page.locator('.ws-view.active .tile').count(), 1);
   assert.equal(await page.locator('.ws-view.active .chat-body').count(), 1);
 });

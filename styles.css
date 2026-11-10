@@ -1705,7 +1705,7 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .chat-message-content li > :is(ul, ol) { margin: .15em 0; }
 .chat-message-content blockquote { border-left: 3px solid var(--accent-dim); margin: .8em 0; padding: .1em 0 .1em 1em; color: var(--muted); }
 .chat-message-content hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
-.chat-message-content a[href] { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.chat-message-content a[href] { color: #79b8ff; text-decoration: none; cursor: pointer; }
 .chat-table-wrap { max-width: 100%; overflow-x: auto; margin: .8em 0; }
 .chat-message-content table { border-collapse: collapse; font-size: inherit; }
 .chat-message-content :is(th, td) { padding: .4em .7em; border: 1px solid var(--line); text-align: left; }
@@ -1917,3 +1917,53 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .ctx-item:hover:not(.disabled), .ctx-item:focus-visible:not(.disabled), .ctx-item.danger:hover:not(.disabled) { background: #ffffff14; color: var(--text); }
 .ctx-item:hover:not(.disabled) .hint, .ctx-item.danger:hover:not(.disabled) .hint { color: var(--muted); }
 @media (max-width: 600px) { .chat-model-nav { flex-basis: 110px; } }
+
+/* Keep the model library compact beside the composer. */
+.chat-model-picker > .chat-model-menu { width: min(390px, calc(100vw - 48px)); max-width: calc(100vw - 48px); max-height: min(370px, calc(100vh - 100px)); border-radius: 11px; }
+.chat-model-picker .chat-model-header { gap: 7px; padding: 11px 11px 9px; font-size: 12px; }
+.chat-model-picker .chat-model-header input { padding: 6px 8px; border-radius: 6px; }
+.chat-model-nav { flex-basis: 108px; padding: 5px 4px; }
+.chat-compose-bottom .chat-model-nav-item { padding: 5px 6px; font-size: 11px; }
+.chat-model-nav-count { font-size: 10px; }
+.chat-model-list-heading { padding: 8px 8px 4px; font-size: 10px; }
+.chat-model-results .chat-model-list { max-height: 260px; padding: 0 4px 5px; }
+.chat-compose-bottom .chat-model-option { gap: 5px; padding: 6px; font-size: 12px; }
+.chat-model-provider { max-width: 38%; padding: 2px 4px; border-radius: 4px; font-size: 9px; }
+.chat-compose-bottom .chat-model-star { width: 25px; height: 25px; font-size: 11px; }
+@media (max-width: 600px) { .chat-model-nav { flex-basis: 96px; } }
+
+/* Quiet model search and recognisable, compact provider marks. */
+.chat-model-picker .chat-model-header input:focus { border-color: #514b57; }
+.chat-model-provider:has(img) { display: inline-flex; align-items: center; justify-content: center; padding: 0; background: transparent; }
+.chat-model-provider img { display: block; width: 14px; height: 14px; filter: invert(.85); }
+
+/* Equal, consistently spaced Git actions. */
+.git-shortcuts { gap: 3px; }
+#git-panel .git-shortcuts button, #git-panel .git-content #git-remote-open { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font-size: 12px; }
+#git-panel .git-shortcuts svg { flex: none; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; color: var(--muted); }
+.git-remote-container { padding: 4px 5px 7px; }
+#git-panel .git-content #git-remote-open { justify-content: flex-start; background: #302f34; }
+
+/* A chat has a title, not a tab strip. Browser tabs stay unchanged. */
+.tile[data-pane-type="chat"] .pane-tab { flex: 1 1 auto; max-width: none; border: 0; background: transparent; }
+.tile[data-pane-type="chat"] .pane-tab-select { cursor: default; padding-left: 12px; color: var(--text); }
+
+/* The composer floats over the transcript and moves down after the first message. */
+.pane-body.chat-body { position: relative; container-type: size; --composer-height: 76px; }
+.chat-body .chat-scroll { width: 100%; }
+.chat-body .chat-thread { padding-bottom: calc(var(--composer-height) + 52px); }
+.chat-body .chat-composer, .chat-body .chat-attachments { position: absolute; left: 50%; margin: 0; }
+.chat-body .chat-composer { bottom: 24px; transform: translate(-50%, 0); transition: transform 350ms cubic-bezier(.22, 1, .36, 1); z-index: 3; }
+.chat-body .chat-attachments { bottom: calc(var(--composer-height) + 32px); transform: translate(-50%, 0); transition: transform 350ms cubic-bezier(.22, 1, .36, 1); z-index: 3; }
+.chat-body.chat-empty .chat-composer, .chat-body.chat-empty .chat-attachments { transform: translate(-50%, calc(-50cqh + var(--composer-height) / 2 + 24px)); }
+.chat-body.chat-empty .chat-welcome { position: absolute; left: 20px; right: 20px; top: calc(50% - 185px); padding: 0; }
+.chat-body.chat-empty .chat-symbol { display: none; }
+.chat-body.chat-empty .chat-welcome h2 { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .chat-body .chat-composer, .chat-body .chat-attachments { transition: none; } }
+.chat-body.chat-empty .chat-composer { transform: translate(-50%, calc(-50cqh + 50% + 24px)); }
+#git-repo > .git-group > summary { box-sizing: border-box; width: calc(100% - 10px); height: 34px; min-height: 34px; margin: 0 5px; }
+.git-action-section { padding: 3px 5px; }
+.pane-body.chat-body { padding: 0; }
+
+/* The current OpenRouter glyph is supplied by OpenRouter. */
+.chat-model-provider img[src="icons/openrouter.svg"] { filter: none; }

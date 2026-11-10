@@ -48,3 +48,20 @@ test('cached history reloads changed files and bounds retained entries', async t
   await fs.unlink(file);
   await assert.rejects(reader.load(cwd, file));
 });
+
+test('the history preview exposes model and reasoning from the selected branch', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'synthesis-history-selection-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'chat.jsonl');
+  await fs.writeFile(file, source([
+    { type: 'model_change', id: 'a', parentId: null, provider: 'openai', modelId: 'first' },
+    { type: 'thinking_level_change', id: 'b', parentId: 'a', thinkingLevel: 'low' },
+    { type: 'model_change', id: 'old', parentId: 'b', provider: 'openrouter', modelId: 'abandoned' },
+    { type: 'model_change', id: 'c', parentId: 'b', provider: 'openai', modelId: 'current' },
+    { type: 'thinking_level_change', id: 'd', parentId: 'c', thinkingLevel: 'high' },
+    message('e', 'd', 'user', 'Hello'),
+  ]));
+  const projection = await createHistoryReader().loadProjection(cwd, file);
+  assert.deepEqual(projection.selection, { model: { provider: 'openai', id: 'current' }, reasoning: 'high' });
+  assert.equal(projection.messages[0].content, 'Hello');
+});

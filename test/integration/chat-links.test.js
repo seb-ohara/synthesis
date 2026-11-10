@@ -31,10 +31,12 @@ test('chat document and web links open in browser tabs and chosen splits', async
     return { url: view.webContents.getURL(), body: await view.webContents.executeJavaScript('document.body.innerText') };
   });
   assert.match(doc.url, /^synthesis-doc:/); assert.match(doc.body, /Document heading/); assert.match(doc.body, /Hello from Markdown/);
-  await page.evaluate(id => { const ws = activeWs(); restoreParkedTab(workspaceTabs(ws).find(tab => tab.id === id), ws.panes[0]); }, tabId);
+  assert.equal(await page.locator('.ws-view.active .tile').count(), 2);
+  assert.equal(await page.locator('.ws-view.active .chat-message.assistant').count(), 1);
   await page.locator('.chat-message.assistant a[href="sample.html"]').click({ button: 'right' });
   assert.equal(await page.locator('#ctx-menu .ctx-item').filter({ hasText: 'Show in Finder' }).isVisible(), true);
-  await page.locator('#ctx-menu .ctx-item').filter({ hasText: 'Open in split right' }).click();
+  assert.equal(await page.locator('#ctx-menu .ctx-item').filter({ hasText: 'Open in this pane' }).count(), 0);
+  await page.locator('#ctx-menu .ctx-item').filter({ hasText: 'Open in pane 2' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
   await page.waitForFunction(() => [...document.querySelectorAll('.ws-view.active .browser-url')].some(input => input.value.includes('sample.html')));
   const html = await app.evaluate(async ({ BrowserWindow }) => {
@@ -85,7 +87,7 @@ test('a saved document tab can be reopened after relaunch', async t => {
   let app = await _electron.launch({ ...APP_OPTIONS, cwd: ROOT, env });
   t.after(async () => { if (app) await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
   let page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
-  const wsId = await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Restored project', cwd }); setActive(ws.id); openChatTarget(ws, ws.panes[0], cwd, 'report.md'); return ws.id; }, project);
+  const wsId = await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Restored project', cwd }); setActive(ws.id); openChatTarget(ws, ws.panes[0], cwd, 'report.md', 'tab'); return ws.id; }, project);
   await page.waitForFunction(() => activeWs().panes[0].activeTab.currentUrl.startsWith('synthesis-doc:'));
   const snapshot = await page.evaluate(() => buildSnapshot());
   const saved = snapshot.workspaces.find(ws => ws.name === 'Restored project').panes[0].tabs.find(tab => tab.type === 'browser');

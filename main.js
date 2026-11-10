@@ -167,10 +167,10 @@ ipcMain.handle('chat:sessions', (_e, cwd, ownedPaths) => {
 const chatHistoryReader = require('./lib/chat-history').createHistoryReader();
 async function readChatHistory(cwd, sessionPath) {
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || cwd.includes('\0') || cwd.length > 4096 || !(await validChatSession(cwd, sessionPath))) throw new Error('Saved chat not found in this workspace');
-  return chatHistoryReader.load(cwd, sessionPath);
+  return chatHistoryReader.loadProjection(cwd, sessionPath);
 }
 ipcMain.handle('chat:history', async (_event, { cwd, sessionPath }) => {
-  try { return { ok: true, messages: await readChatHistory(cwd, sessionPath) }; }
+  try { return { ok: true, ...await readChatHistory(cwd, sessionPath) }; }
   catch { return { ok: false }; } // Agent loading is the fallback for older/large sessions.
 });
 let chatWarmupRunning = false, chatWarmupNext = null;

@@ -620,7 +620,7 @@ function refreshView(ws) {
   ws.panes.forEach((p) => {
     p.tile.classList.toggle('active', p === pane);
     const close = p.tile.querySelector('.pane-close');
-    if (close) close.disabled = ws.panes.length <= 1;
+    if (close) close.disabled = ws.panes.length <= 1 && p.type !== 'chat';
   });
 }
 
@@ -779,6 +779,8 @@ function setPaneTitle(pane, text) {
 function updatePaneSurfaceChrome(pane) {
   const isBrowser = pane.type === 'browser';
   pane.tile.dataset.paneType = pane.type;
+  const close = pane.tile.querySelector('.pane-close');
+  if (close) { close.disabled = pane.ws.panes.length <= 1 && pane.type !== 'chat'; close.setAttribute('aria-label', pane.type === 'chat' ? 'Close chat' : 'Close pane'); }
   if (pane.surfaceBtn) {
     pane.surfaceBtn.dataset.tip = 'Open browser in this pane';
     pane.surfaceBtn.setAttribute('aria-label', pane.surfaceBtn.dataset.tip);
@@ -794,7 +796,8 @@ function buildPaneActions(ws, pane) {
   closeBtn.textContent = '✕';
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    closePane(ws, pane);
+    if (pane.type === 'chat') closePaneTab(ws, pane, pane.activeTab);
+    else closePane(ws, pane);
   });
 
   const actions = document.createElement('div');
@@ -1434,7 +1437,7 @@ function renderPaneTabs(pane) {
     item.className = 'pane-tab' + (tab === pane.activeTab ? ' selected' : '');
     item.dataset.tabId = tab.id;
     item.dataset.tabType = tab.type;
-    item.draggable = true;
+    item.draggable = tab.type !== 'chat';
     item.addEventListener('dragstart', (event) => {
       if (event.target.closest('.pane-tab-close')) { event.preventDefault(); return; }
       draggedTab = tab;
@@ -1457,7 +1460,8 @@ function renderPaneTabs(pane) {
     select.setAttribute('aria-controls', tab.body.id);
     select.id = 'tab-' + tab.id;
     select.tabIndex = tab === pane.activeTab ? 0 : -1;
-    select.textContent = (tab.type === 'browser' ? '◎ ' : tab.type === 'chat' ? '✳ ' : '>_ ') + (tab.title || (tab.type === 'browser' ? 'New tab' : 'Terminal'));
+    const project = state.workspaces.find(ws => ws.id === tab.projectId) || pane.ws;
+    select.textContent = tab.type === 'chat' ? `${isScratch(project) ? 'No project' : project.name} / ${tab.title === 'Chat' ? 'New chat' : tab.title}` : (tab.type === 'browser' ? '◎ ' : '>_ ') + (tab.title || 'New tab');
     select.title = select.textContent;
     select.addEventListener('click', () => activateTab(pane.ws, pane, tab));
     select.addEventListener('keydown', (event) => {
@@ -1483,7 +1487,7 @@ function renderPaneTabs(pane) {
     close.textContent = '×';
     close.setAttribute('aria-label', 'Close ' + (tab.title || tab.type) + ' tab');
     close.addEventListener('click', () => closePaneTab(pane.ws, pane, tab));
-    item.append(select, close);
+    item.append(select); if (tab.type !== 'chat') item.append(close);
     pane.tabList.appendChild(item);
   });
   pane.tabList.scrollLeft = scrollLeft;
@@ -1514,7 +1518,7 @@ function activateTab(ws, pane, tab, focus = true) {
 }
 
 function isChatWebLink(target) { return /^https?:\/\//i.test(target); }
-function openChatTarget(ws, sourcePane, cwd, target, destination = 'tab', selectedPane = null) {
+function openChatTarget(ws, sourcePane, cwd, target, destination = 'right', selectedPane = null) {
   if (/^mailto:/i.test(target)) { window.mux.app.openChatLink(target); return; }
   const ready = isChatWebLink(target) || /^synthesis-doc:\/\//i.test(target)
     ? Promise.resolve({ ok: true, url: target }) : window.mux.app.prepareDocument(cwd, target);
@@ -1533,7 +1537,6 @@ function openChatTarget(ws, sourcePane, cwd, target, destination = 'tab', select
 function chatLinkMenu(ws, pane, cwd, target, x, y) {
   const local = !isChatWebLink(target) && !/^mailto:/i.test(target) && !/^synthesis-doc:/i.test(target);
   const items = [
-    { label: 'Open in this pane', action: () => openChatTarget(ws, pane, cwd, target) },
     { label: 'Open in split right', action: () => openChatTarget(ws, pane, cwd, target, 'right') },
     { label: 'Open in split below', action: () => openChatTarget(ws, pane, cwd, target, 'down') },
     ...ws.panes.filter(other => other !== pane).map(other => ({ label: `Open in pane ${ws.panes.indexOf(other) + 1}`, disabled: other.tabs.length >= MAX_PANE_TABS, action: () => openChatTarget(ws, pane, cwd, target, 'pane', other) })),
@@ -1563,10 +1566,39 @@ function linkifyChatFiles(root) {
   }
 }
 
+// Keep a bounded set of preformatted history messages for fast first display.
+const chatMarkupCache = new Map();
+let chatMarkupBytes = 0;
+function chatMarkup(value, remember = false) {
+  const source = String(value);
+  if (chatMarkupCache.has(source)) return chatMarkupCache.get(source);
+  const html = DOMPurify.sanitize(marked.parse(source, { gfm: true, breaks: false }), {
+    ALLOWED_TAGS: ['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+    ALLOWED_ATTR: ['href', 'title', 'start'], ALLOW_DATA_ATTR: false,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|[^a-z]|[a-z][a-z0-9+.-]*(?:[^a-z0-9+.-:]|$))/i
+  });
+  const size = (source.length + html.length) * 2;
+  if (remember && size <= 8 * 1024 * 1024 - chatMarkupBytes) { chatMarkupCache.set(source, html); chatMarkupBytes += size; }
+  return html;
+}
+function warmChatMarkup(messages) {
+  let index = 0;
+  const step = deadline => {
+    let count = 0;
+    while (index < messages.length && count++ < 12 && (deadline.didTimeout || deadline.timeRemaining() > 1)) {
+      const message = messages[index++];
+      let value = message.role === 'toolResult' ? chatRichText.resultText(message) : (typeof message.content === 'string' ? message.content : (message.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n'));
+      if (typeof value === 'string' && value.length <= 65536) chatMarkup(value, true);
+    }
+    if (index < messages.length && chatMarkupBytes < 8 * 1024 * 1024) requestIdleCallback(step, { timeout: 1000 });
+  };
+  requestIdleCallback(step, { timeout: 1000 });
+}
+
 function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
-  tab.body.classList.add('chat-body');
+  tab.body.classList.add('chat-body', 'chat-empty');
   tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
@@ -1575,6 +1607,8 @@ function initChatPane(ws, tab) {
   const statusText = tab.body.querySelector('.chat-status-text');
   const form = tab.body.querySelector('form');
   const input = form.querySelector('textarea');
+  const composerObserver = new ResizeObserver(() => tab.body.style.setProperty('--composer-height', form.offsetHeight + 'px'));
+  composerObserver.observe(form); tab.unsubs.push(() => composerObserver.disconnect());
   const button = form.querySelector('.chat-send');
   form.querySelector('.chat-git').addEventListener('click', event => {
     const trigger = event.currentTarget;
@@ -1590,11 +1624,14 @@ function initChatPane(ws, tab) {
   const modelHeading = form.querySelector('.chat-model-list-heading');
   let modelFilter = 'all';
   const favoriteKey = 'synthesis.chat.favoriteModels';
+  const catalogKey = 'synthesis.chat.modelCatalog';
   let models = [];
+  try { const stored = JSON.parse(localStorage.getItem(catalogKey) || '[]'); if (Array.isArray(stored)) models = stored.filter(m => m && typeof m.provider === 'string' && typeof m.id === 'string').slice(0, 5000); } catch {}
+  const savedSelection = chatMeta(tab.sessionPath || tab.id).selection || {};
   function favorites() { try { const values = JSON.parse(localStorage.getItem(favoriteKey) || '[]'); return new Set(Array.isArray(values) ? values.filter(x => typeof x === 'string') : []); } catch { return new Set(); } }
   function modelKey(model) { return JSON.stringify([model.provider, model.id]); }
   function providerName(value) { return ({ openai: 'OpenAI', openrouter: 'OpenRouter', anthropic: 'Anthropic', google: 'Google', 'github-copilot': 'GitHub Copilot', 'openai-codex': 'OpenAI Codex' })[value] || value; }
-  function updateModelLabel() { const model = models.find(m => modelKey(m) === currentModel); modelLabel.textContent = model ? (model.name || model.id) : models.length ? 'Choose model' : 'No models available'; modelSelect.title = model ? `${model.name || model.id} · ${providerName(model.provider)}` : modelLabel.textContent; }
+  function updateModelLabel() { const model = models.find(m => modelKey(m) === currentModel) || currentSelection; modelLabel.textContent = model ? (model.name || model.id) : models.length ? 'Choose model' : 'Loading models…'; modelSelect.title = model ? `${model.name || model.id} · ${providerName(model.provider)}` : modelLabel.textContent; }
   function closeModelMenu() { modelMenu.hidden = true; modelSelect.setAttribute('aria-expanded', 'false'); }
   function renderModels() {
     modelList.replaceChildren();
@@ -1614,9 +1651,9 @@ function initChatPane(ws, tab) {
     {
       for (const model of items) {
         const key = modelKey(model); const row = document.createElement('div'); row.className = 'chat-model-row';
-        const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'chat-model-option';
+        const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'chat-model-option'; choose.disabled = !ready || busy || changing;
         const name = document.createElement('span'); name.className = 'chat-model-name'; name.textContent = model.name || model.id;
-        const provider = document.createElement('span'); provider.className = 'chat-model-provider'; provider.textContent = providerName(model.provider);
+        const provider = document.createElement('span'); provider.className = 'chat-model-provider'; const providerTitle = providerName(model.provider); provider.title = providerTitle; const logo = ({ openai: 'openai', 'openai-codex': 'openai', openrouter: 'openrouter' })[model.provider]; if (logo) { const icon = document.createElement('img'); icon.src = `icons/${logo}.svg`; icon.alt = providerTitle; provider.append(icon); } else provider.textContent = providerTitle;
         choose.append(name, provider); if (key === currentModel) { const check = document.createElement('span'); check.className = 'chat-model-check'; check.textContent = '✓'; choose.append(check); choose.setAttribute('aria-current', 'true'); }
         choose.addEventListener('click', () => { if (key === currentModel) { closeModelMenu(); return; } changing = true; closeModelMenu(); update(); command('set_model', { provider: model.provider, modelId: model.id }); });
         const star = document.createElement('button'); star.type = 'button'; star.className = 'chat-model-star'; star.textContent = saved.has(key) ? '★' : '☆'; star.setAttribute('aria-label', (saved.has(key) ? 'Remove from favourites: ' : 'Add to favourites: ') + (model.name || model.id) + ', ' + providerName(model.provider)); star.setAttribute('aria-pressed', String(saved.has(key)));
@@ -1635,12 +1672,12 @@ function initChatPane(ws, tab) {
   const reasoningLabel = form.querySelector('.chat-reasoning-label');
   const reasoningMenu = form.querySelector('.chat-reasoning-menu');
   const reasoningList = form.querySelector('.chat-reasoning-list');
-  let levels = ['off'], pendingReasoning = null;
+  let levels = Array.isArray(savedSelection.levels) && savedSelection.levels.length ? savedSelection.levels : ['off'], pendingReasoning = null;
   function levelLabel(level) { return level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Off'; }
   function renderReasoning() {
     reasoningLabel.textContent = levelLabel(currentReasoning);
     reasoningList.replaceChildren();
-    for (const level of levels) { const item = document.createElement('button'); item.type = 'button'; item.className = 'chat-reasoning-option'; item.textContent = levelLabel(level); if (level === currentReasoning) { item.setAttribute('aria-current', 'true'); const check = document.createElement('span'); check.textContent = '✓'; item.append(check); } item.addEventListener('click', () => { closeReasoning(); if (level === currentReasoning) return; pendingReasoning = level; changing = true; update(); command('set_thinking_level', { level }); }); reasoningList.append(item); }
+    for (const level of levels) { const item = document.createElement('button'); item.type = 'button'; item.className = 'chat-reasoning-option'; item.disabled = !ready || busy || changing; item.textContent = levelLabel(level); if (level === currentReasoning) { item.setAttribute('aria-current', 'true'); const check = document.createElement('span'); check.textContent = '✓'; item.append(check); } item.addEventListener('click', () => { closeReasoning(); if (level === currentReasoning) return; pendingReasoning = level; changing = true; update(); command('set_thinking_level', { level }); }); reasoningList.append(item); }
   }
   function closeReasoning() { reasoningMenu.hidden = true; reasoningSelect.setAttribute('aria-expanded', 'false'); }
   reasoningSelect.addEventListener('click', () => { if (!reasoningMenu.hidden) { closeReasoning(); return; } closeModelMenu(); renderReasoning(); reasoningMenu.hidden = false; reasoningSelect.setAttribute('aria-expanded', 'true'); reasoningList.querySelector('button')?.focus(); });
@@ -1650,10 +1687,23 @@ function initChatPane(ws, tab) {
   tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissReasoning));
   const attachmentList = tab.body.querySelector('.chat-attachments');
   const attachButton = form.querySelector('.chat-attach');
-  let attachments = [], pastedImages = [], pendingImages = 0, currentReasoning = 'off';
+  let attachments = [], pastedImages = [], pendingImages = 0, currentReasoning = typeof savedSelection.reasoning === 'string' ? savedSelection.reasoning : 'off';
   const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
   const maxImageBytes = 10 * 1024 * 1024;
-  let currentModel = '', changing = false;
+  let currentSelection = savedSelection.model && typeof savedSelection.model.provider === 'string' && typeof savedSelection.model.id === 'string' ? savedSelection.model : null;
+  let currentModel = currentSelection ? modelKey(currentSelection) : '', changing = false, agentStateLoaded = false;
+  function applyPreviewSelection(selection) {
+    if (agentStateLoaded || !selection) return;
+    if (selection.model?.provider && selection.model?.id) { if (currentModel && currentModel !== modelKey(selection.model)) levels = ['off']; currentSelection = selection.model; currentModel = modelKey(currentSelection); }
+    if (typeof selection.reasoning === 'string') { currentReasoning = selection.reasoning; if (!levels.includes(currentReasoning)) levels = [currentReasoning]; }
+    updateModelLabel(); renderReasoning(); update();
+  }
+  function rememberSelection() {
+    const key = tab.sessionPath || tab.id, all = readLocalMap(CHAT_META_KEY);
+    const selection = { model: currentSelection, reasoning: currentReasoning, levels };
+    if (JSON.stringify(all[key]?.selection) === JSON.stringify(selection)) return;
+    all[key] = { ...all[key], selection }; try { localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); } catch {}
+  }
   tab.getGitModel = () => { const model = models.find(item => modelKey(item) === currentModel); return model ? { provider: model.provider, id: model.id } : null; };
   function renderAttachments() {
     attachmentList.replaceChildren(); attachmentList.hidden = !attachments.length && !pastedImages.length && !pendingImages;
@@ -1690,7 +1740,8 @@ function initChatPane(ws, tab) {
     }
   });
   attachButton.addEventListener('click', async () => { const path = await window.mux.app.pickPath(); if (path && !tab.disposed && !attachments.includes(path)) { attachments.push(path); renderAttachments(); update(); } });
-  let streaming = null, busy = false, ready = false, lastSidebarBusy = null, turnHasOutput = false, turnHasError = false;
+  let streaming = null, busy = false, ready = false, lastSidebarBusy = null, lastControlsReady = null, turnHasOutput = false, turnHasError = false;
+  updateModelLabel(); renderReasoning();
   let turnCount = 0, timerStarted = null, timerInterval = null, timerNode = null, pendingRender = null, historyFragment = null;
   function formatElapsed(ms) {
     const seconds = Math.floor(ms / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), sec = seconds % 60;
@@ -1715,12 +1766,13 @@ function initChatPane(ws, tab) {
   }
   tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
   tab.modified = 0;
-  function update() { tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = !ready || busy || changing; reasoningSelect.disabled = !ready || busy || changing; attachButton.disabled = busy || changing; status.hidden = !busy; }
+  function update() { if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
   tab.abortChat = () => { if (busy) { command('abort'); statusText.textContent = 'Stopping…'; } };
   function add(role, content, images = []) {
     if (!content && !images.length) return null;
     if (busy && role === 'error') turnHasError = true;
     welcome.hidden = true;
+    tab.body.classList.remove('chat-empty');
     const row = document.createElement('div'); row.className = 'chat-message ' + role;
     const body = document.createElement('div'); body.className = 'chat-message-content';
     row.append(body);
@@ -1746,13 +1798,8 @@ function initChatPane(ws, tab) {
     if (!historyFragment) scroll.scrollTop = scroll.scrollHeight; return body;
   }
   function renderText(el, value) {
-    // Markdown is converted locally, then restricted to inert formatting elements.
-    const html = marked.parse(String(value), { gfm: true, breaks: false });
-    el.innerHTML = DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-      ALLOWED_ATTR: ['href', 'title', 'start'], ALLOW_DATA_ATTR: false,
-      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|[^a-z]|[a-z][a-z0-9+.-]*(?:[^a-z0-9+.-:]|$))/i
-    });
+    // The cached projection uses the same sanitization as newly streamed text.
+    el.innerHTML = chatMarkup(value);
     linkifyChatFiles(el);
     for (const link of el.querySelectorAll('a')) {
       const href = link.getAttribute('href') || '';
@@ -1815,16 +1862,16 @@ function initChatPane(ws, tab) {
       }
       else add('error', event.error || 'Could not load this chat.'); update(); renderList();
     } else if (event.type === 'response' && event.command === 'get_available_models') {
-      models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); updateModelLabel(); if (!modelMenu.hidden) renderModels();
+      if (event.success) { models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); try { localStorage.setItem(catalogKey, JSON.stringify(models.slice(0, 5000).map(({ provider, id, name }) => ({ provider, id, name })))); } catch {} } updateModelLabel(); if (!modelMenu.hidden) renderModels(); update();
     } else if (event.type === 'response' && event.command === 'get_state' && event.success) {
-      const model = event.data.model; currentModel = model ? modelKey(model) : ''; updateModelLabel();
-      if (event.data.sessionFile && tab.sessionPath !== event.data.sessionFile) { moveChatMeta(tab.id, event.data.sessionFile); tab.sessionPath = event.data.sessionFile; refreshProjectChats(projectWorkspace()); } if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath); currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); saveWorkspaces();
+      const model = event.data.model; agentStateLoaded = true; currentSelection = model && typeof model.provider === 'string' && typeof model.id === 'string' ? { provider: model.provider, id: model.id, name: model.name } : null; currentModel = currentSelection ? modelKey(currentSelection) : ''; updateModelLabel();
+      if (event.data.sessionFile && tab.sessionPath !== event.data.sessionFile) { moveChatMeta(tab.id, event.data.sessionFile); tab.sessionPath = event.data.sessionFile; refreshProjectChats(projectWorkspace()); } if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath); currentReasoning = event.data.thinkingLevel || 'off'; renderReasoning(); rememberSelection(); saveWorkspaces(); update();
     } else if (event.type === 'response' && event.command === 'set_model') {
-      changing = false; if (!event.success) { add('error', event.error || 'Could not change model.'); updateModelLabel(); } else { const m = event.data; currentModel = modelKey(m); updateModelLabel(); command('get_state'); command('get_available_thinking_levels'); } update();
+      changing = false; if (!event.success) { add('error', event.error || 'Could not change model.'); updateModelLabel(); } else { const m = event.data; currentSelection = { provider: m.provider, id: m.id, name: m.name }; currentModel = modelKey(m); updateModelLabel(); command('get_state'); command('get_available_thinking_levels'); } update();
     } else if (event.type === 'response' && event.command === 'get_available_thinking_levels') {
-      levels = event.data?.levels?.length ? event.data.levels : ['off']; renderReasoning();
+      levels = event.data?.levels?.length ? event.data.levels : ['off']; renderReasoning(); if (agentStateLoaded) rememberSelection();
     } else if (event.type === 'response' && event.command === 'set_thinking_level') {
-      changing = false; if (!event.success) add('error', event.error || 'Could not change reasoning level.'); else { currentReasoning = pendingReasoning; command('get_state'); } pendingReasoning = null; renderReasoning(); update();
+      changing = false; if (!event.success) add('error', event.error || 'Could not change reasoning level.'); else { currentReasoning = pendingReasoning; rememberSelection(); command('get_state'); } pendingReasoning = null; renderReasoning(); update();
     } else if (event.type === 'response' && event.command === 'prompt' && (!event.success || event.data?.disposition === 'handled')) { busy = false; finishTimer(); if (!event.success) add('error', event.error || 'Could not send message.'); update(); }
     else if (event.type === 'message_start' && event.message?.role === 'assistant') streaming = null;
     else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
@@ -1860,11 +1907,15 @@ function initChatPane(ws, tab) {
     if (tab.disposed || tab.chatStarted) return;
     tab.chatStarted = true;
     if (tab.sessionPath) {
+      tab.body.classList.remove('chat-empty');
       welcome.hidden = true;
+      const cached = chatPreviewCache.get(previewKey(chatCwd, tab.sessionPath));
+      if (cached) { applyPreviewSelection(cached.selection); previewMessages = cached.messages; displayHistory(previewMessages); }
+      // Check the file again: a different process may have changed it since warm-up.
       window.mux.chat.history(chatCwd, tab.sessionPath).then(result => {
         if (tab.disposed || agentHistoryLoaded || !result.ok) return;
-        previewMessages = result.messages;
-        displayHistory(result.messages); renderList();
+        applyPreviewSelection(result.selection);
+        if (!previewMessages || !sameVisibleHistory(previewMessages, result.messages)) { previewMessages = result.messages; displayHistory(result.messages); renderList(); }
       }).catch(() => {});
     }
     tab.unsubs.push(window.mux.chat.onEvent(tab.id, onChatEvent));
@@ -2245,15 +2296,36 @@ function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[
 function moveChatMeta(from, to) { const all = readLocalMap(CHAT_META_KEY); if (all[from]) { all[to] = { ...all[to], ...all[from] }; delete all[from]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); } }
 function isScratch(ws) { return !!readLocalMap(SCRATCH_KEY)[ws.id]; }
 function setScratch(ws, value) { const all = readLocalMap(SCRATCH_KEY); if (value) all[ws.id] = true; else delete all[ws.id]; localStorage.setItem(SCRATCH_KEY, JSON.stringify(all)); }
-let chatPreloadTimer = null, lastChatPreload = '';
+const chatPreviewCache = new Map(), chatPreviewPending = new Set();
+const CHAT_PREVIEW_MAX_BYTES = 48 * 1024 * 1024;
+let chatPreviewBytes = 0, chatPreloadTimer = null, chatPreloadGeneration = 0;
+function previewKey(cwd, sessionPath) { return JSON.stringify([cwd, sessionPath]); }
 function scheduleChatPreload() {
   clearTimeout(chatPreloadTimer);
-  chatPreloadTimer = setTimeout(() => {
-    const recent = conversationRows().filter(row => row.session || row.tab?.sessionPath).sort((a, b) => b.modified - a.modified).slice(0, 3);
-    const key = JSON.stringify(recent.map(row => [row.key, row.modified]));
-    if (key === lastChatPreload) return;
-    lastChatPreload = key;
-    window.mux.chat.preload(recent.map(row => ({ cwd: row.tab?.chatCwd || row.ws.cwd, sessionPath: row.tab?.sessionPath || row.session.path }))).catch(() => {});
+  const generation = ++chatPreloadGeneration;
+  chatPreloadTimer = setTimeout(async () => {
+    const recent = conversationRows().filter(row => row.session || row.tab?.sessionPath).sort((a, b) => b.modified - a.modified);
+    let next = 0;
+    async function loadNext() {
+      while (generation === chatPreloadGeneration && next < recent.length) {
+        const row = recent[next++], cwd = row.tab?.chatCwd || row.ws.cwd, sessionPath = row.tab?.sessionPath || row.session.path;
+        const key = previewKey(cwd, sessionPath), existing = chatPreviewCache.get(key);
+        if (existing?.modified === row.modified || chatPreviewPending.has(key)) continue;
+        chatPreviewPending.add(key);
+        try {
+          const result = await window.mux.chat.history(cwd, sessionPath);
+          if (!result.ok) continue;
+          const size = JSON.stringify(result.messages).length * 2;
+          const old = chatPreviewCache.get(key);
+          if (old) { chatPreviewBytes -= old.size; chatPreviewCache.delete(key); }
+          if (size <= CHAT_PREVIEW_MAX_BYTES - chatPreviewBytes) {
+            chatPreviewCache.set(key, { messages: result.messages, selection: result.selection, modified: row.modified, size }); chatPreviewBytes += size;
+            warmChatMarkup(result.messages);
+          }
+        } catch {} finally { chatPreviewPending.delete(key); }
+      }
+    }
+    await Promise.all([loadNext(), loadNext(), loadNext()]);
   }, 120);
 }
 async function refreshProjectChats(ws) {

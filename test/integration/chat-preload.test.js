@@ -47,9 +47,9 @@ test('after relaunch saved content opens before the agent responds and send high
   const tabId = await page.locator('.ws-view.active .chat-body:not(.tab-hidden)').evaluate(el => el.id.slice('panel-'.length));
   await page.evaluate(() => { window.__previewBody = document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-messages'); window.__previewMessage = window.__previewBody.firstElementChild; });
   await app.evaluate(({ BrowserWindow }, { id, messages }) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'response', command: 'get_messages', success: true, data: { messages } } }), { id: tabId, messages: history });
-  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-model-trigger').disabled);
-  assert.equal(await page.evaluate(() => window.__previewBody.firstElementChild === window.__previewMessage), true);
   await page.locator('.ws-view.active .chat-body:not(.tab-hidden) textarea').fill('Continue');
+  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-send').disabled);
+  assert.equal(await page.evaluate(() => window.__previewBody.firstElementChild === window.__previewMessage), true);
   const send = page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-send');
   await page.mouse.move(0, 0);
   assert.equal(await send.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
@@ -81,4 +81,72 @@ test('a late disk preview cannot overwrite live agent history', async t => {
   // The IPC response and event have both been delivered before this round trip.
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   assert.equal(await page.getByText('Outdated disk response', { exact: true }).count(), 0);
+});
+
+test('startup prepares more than three chats and shows a cached conversation before a disk response', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-preload-many-'));
+  const cwd = path.join(temp, 'project'), userData = path.join(temp, 'userdata'), agentDir = path.join(temp, 'agent');
+  fs.mkdirSync(cwd); fs.mkdirSync(userData);
+  const dir = path.join(agentDir, 'sessions', '--' + cwd.replace(/^[/\\]+/, '').replace(/[/\\:]/g, '-') + '--');
+  fs.mkdirSync(dir, { recursive: true });
+  const paths = Array.from({ length: 6 }, (_, i) => {
+    const file = path.join(dir, `chat-${i}.jsonl`);
+    fs.writeFileSync(file, [
+      { type: 'session', version: 3, cwd },
+      { type: 'model_change', id: 'm', parentId: null, provider: 'openai', modelId: 'fast-model' },
+      { type: 'thinking_level_change', id: 't', parentId: 'm', thinkingLevel: 'high' },
+      { type: 'message', id: 'a', parentId: 't', message: { role: 'user', content: `Question ${i}`, timestamp: 1000 + i } },
+      { type: 'message', id: 'b', parentId: 'a', message: { role: 'assistant', content: `Answer ${i}`, timestamp: 2000 + i } },
+    ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+    return file;
+  });
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData, PI_CODING_AGENT_DIR: agentDir }; delete env.ELECTRON_RUN_AS_NODE;
+  let app = await _electron.launch({ ...APP_OPTIONS, cwd: ROOT, env });
+  t.after(async () => { if (app) await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+  let page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  await page.evaluate(async ({ cwd, paths }) => {
+    const ws = createWorkspace({ name: 'Preload project', cwd });
+    for (const file of paths) rememberConversation(file);
+    await window.mux.sessions.save(buildSnapshot());
+  }, { cwd, paths });
+  await app.close(); app = null;
+  app = await _electron.launch({ ...APP_OPTIONS, cwd: ROOT, env }); page = await app.firstWindow();
+  await page.waitForSelector('.ws-view.active .chat-body');
+  await page.waitForFunction(({ cwd, paths }) => paths.every(file => chatPreviewCache.has(previewKey(cwd, file))), { cwd, paths }, { timeout: 20000 });
+  await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('chat:start'); ipcMain.handle('chat:start', () => ({ ok: true })); });
+  fs.writeFileSync(paths[1], [
+    { type: 'session', version: 3, cwd },
+    { type: 'message', id: 'a', parentId: null, message: { role: 'user', content: 'Question 1', timestamp: 1001 } },
+    { type: 'message', id: 'b', parentId: 'a', message: { role: 'assistant', content: 'Updated externally', timestamp: 3000 } },
+  ].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  const oldVisible = await page.evaluate(file => {
+    openConversation(conversationRows().find(item => item.key === file));
+    return document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-messages')?.textContent.includes('Answer 1');
+  }, paths[1]);
+  assert.equal(oldVisible, true, 'the preloaded preview appears before the file check');
+  await page.locator('.ws-view.active .chat-message.assistant').filter({ hasText: 'Updated externally' }).waitFor();
+  await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('chat:history'); ipcMain.handle('chat:history', () => new Promise(() => {})); });
+  const visibleImmediately = await page.evaluate(file => {
+    const row = conversationRows().find(item => item.key === file);
+    openConversation(row);
+    return document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-messages')?.textContent.includes('Answer 0');
+  }, paths[0]);
+  assert.equal(visibleImmediately, true, 'the oldest preloaded chat renders during the opening action');
+  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-model-label').innerText(), 'fast-model');
+  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-label').innerText(), 'High');
+  await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-trigger').click();
+  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-option').first().isDisabled(), true);
+  await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-trigger').click();
+  const id = await page.locator('.ws-view.active .chat-body:not(.tab-hidden)').evaluate(el => el.id.slice('panel-'.length));
+  await app.evaluate(({ BrowserWindow }, id) => {
+    const send = event => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event });
+    send({ type: 'response', command: 'get_available_models', success: true, data: { models: [{ provider: 'openai', id: 'live-model', name: 'Live Model' }] } });
+    send({ type: 'response', command: 'get_state', success: true, data: { model: { provider: 'openai', id: 'live-model' }, thinkingLevel: 'low' } });
+    send({ type: 'response', command: 'get_available_thinking_levels', success: true, data: { levels: ['off', 'low', 'high'] } });
+  }, id);
+  await page.waitForFunction(() => document.querySelector('.ws-view.active .chat-body:not(.tab-hidden) .chat-model-label')?.textContent === 'Live Model');
+  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-label').innerText(), 'Low');
+  const persisted = await page.evaluate(file => ({ selection: chatMeta(file).selection, catalog: JSON.parse(localStorage.getItem('synthesis.chat.modelCatalog')) }), paths[0]);
+  assert.equal(persisted.selection.model.id, 'live-model'); assert.equal(persisted.selection.reasoning, 'low');
+  assert.deepEqual(persisted.selection.levels, ['off', 'low', 'high']); assert.equal(persisted.catalog[0].id, 'live-model');
 });

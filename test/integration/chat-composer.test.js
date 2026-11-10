@@ -15,6 +15,15 @@ test('composer grows and its Git menu follows the active pane', async t => {
   const page = await app.firstWindow();
   await page.waitForSelector('.ws-view.active .chat-body');
   const input = page.locator('.ws-view.active .chat-composer textarea').first();
+  await page.waitForFunction(() => { const b = document.querySelector('.ws-view.active .chat-body').getBoundingClientRect(); const c = document.querySelector('.ws-view.active .chat-composer').getBoundingClientRect(); return Math.abs(b.top + b.height / 2 - c.top - c.height / 2) < 2; });
+  const centered = await page.evaluate(() => { const body = document.querySelector('.ws-view.active .chat-body').getBoundingClientRect(); const composer = document.querySelector('.ws-view.active .chat-composer').getBoundingClientRect(); return Math.abs((body.top + body.height / 2) - (composer.top + composer.height / 2)); });
+  assert.ok(centered < 2, `empty composer should be centered: ${centered}px`);
+  assert.match(await page.locator('.ws-view.active .pane-tab-select').innerText(), /No project \/ New chat/);
+  assert.equal(await page.locator('.ws-view.active .pane-tab-close').count(), 0);
+  const tabId = await page.locator('.ws-view.active .chat-body').evaluate(el => el.id.slice('panel-'.length));
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'response', command: 'get_messages', success: true, data: { messages: [{ role: 'user', content: 'A message' }] } } }), tabId);
+  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-body').classList.contains('chat-empty'));
+  await page.waitForFunction(() => { const body = document.querySelector('.ws-view.active .chat-body').getBoundingClientRect(); const composer = document.querySelector('.ws-view.active .chat-composer').getBoundingClientRect(); return Math.abs(body.bottom - composer.bottom - 24) < 2; });
   const initial = await input.evaluate(el => el.getBoundingClientRect().height);
   assert.ok(initial >= 20 && initial < 30, `single-line height was ${initial}`);
   await input.fill('One line\nTwo lines\nThree lines');
