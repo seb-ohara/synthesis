@@ -1471,7 +1471,6 @@ function activateTab(ws, pane, tab, focus = true) {
   if (ws.id === state.activeId) tab.startChat?.();
   pane.tabs.forEach((item) => item.body.classList.toggle('tab-hidden', item !== tab));
   updatePaneSurfaceChrome(pane);
-  setPaneTitle(tab, tab.title);
   if (tab.type === 'terminal' && tab.status !== 'live') setPaneStatus(ws, tab, tab.status);
   ws.activePaneIdx = ws.panes.indexOf(pane);
   ws.panes.forEach((item) => item.tile.classList.toggle('active', item === pane));
@@ -1603,7 +1602,7 @@ function initChatPane(ws, tab) {
   });
   attachButton.addEventListener('click', async () => { const path = await window.mux.app.pickPath(); if (path && !tab.disposed && !attachments.includes(path)) { attachments.push(path); renderAttachments(); update(); } });
   let streaming = null, busy = false, ready = false, lastSidebarBusy = null, turnHasOutput = false, turnHasError = false;
-  let turnCount = 0, timerStarted = null, timerInterval = null, timerNode = null, pendingRender = null;
+  let turnCount = 0, timerStarted = null, timerInterval = null, timerNode = null, pendingRender = null, historyFragment = null;
   function formatElapsed(ms) {
     const seconds = Math.floor(ms / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), sec = seconds % 60;
     return h ? `${h}h ${m}m ${sec}s` : m ? `${m}m ${sec}s` : `${sec}s`;
@@ -1611,7 +1610,7 @@ function initChatPane(ws, tab) {
   function addTimer(ms, running = false) {
     const node = document.createElement('div'); node.className = 'chat-work-timer';
     node.textContent = `${running ? 'Working' : 'Worked'} for ${formatElapsed(ms)}`;
-    messages.append(node); return node;
+    (historyFragment || messages).append(node); return node;
   }
   function beginTimer() {
     timerStarted = Date.now(); timerNode = addTimer(0, true);
@@ -1641,12 +1640,12 @@ function initChatPane(ws, tab) {
       const icon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="1.5"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg>';
       copy.innerHTML = icon; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(body.raw || ''); copy.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>'; copy.title = 'Copied'; copy.setAttribute('aria-label', 'Response copied'); setTimeout(() => { if (copy.isConnected) { copy.innerHTML = icon; copy.title = 'Copy response'; copy.setAttribute('aria-label', 'Copy response'); } }, 2000); } catch { copy.title = 'Copy failed'; copy.setAttribute('aria-label', 'Copy failed'); } }); row.append(copy);
     }
-    messages.append(row); body.raw = content || ''; renderText(body, content || '');
+    (historyFragment || messages).append(row); body.raw = content || ''; renderText(body, content || '');
     for (const item of images) {
       if (!imageTypes.has(item.mimeType) || typeof item.data !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data)) continue;
       const image = document.createElement('img'); image.className = 'chat-message-image'; image.alt = 'Attached image'; image.src = `data:${item.mimeType};base64,${item.data}`; body.append(image);
     }
-    scroll.scrollTop = scroll.scrollHeight; return body;
+    if (!historyFragment) scroll.scrollTop = scroll.scrollHeight; return body;
   }
   function renderText(el, value) {
     // Markdown is converted locally, then restricted to inert formatting elements.
@@ -1678,7 +1677,25 @@ function initChatPane(ws, tab) {
   function onChatEvent(event) {
     if (event.type === 'response' && event.command === 'get_messages') {
       ready = event.success;
-      if (event.success) { messages.replaceChildren(); welcome.hidden = false; turnCount = 0; const durations = chatMeta(tab.sessionPath || tab.id).durations || {}; for (const m of event.data.messages || []) { if (m.role === 'user' || m.role === 'assistant') { const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []); if (m.role === 'user' && text) { turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]); } if (m.role === 'user' && text) { tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); } if (m.role === 'user' && tab.title === 'Chat' && text) setPaneTitle(tab, chatMeta(tab.sessionPath || tab.id).title || text.replace(/\s+/g, ' ').slice(0, 45)); } else if (m.role === 'toolResult' && m.toolName === 'rich_text') { const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text); } } }
+      if (event.success) {
+        welcome.hidden = false; turnCount = 0; historyFragment = document.createDocumentFragment();
+        const meta = chatMeta(tab.sessionPath || tab.id), durations = meta.durations || {};
+        for (const m of event.data.messages || []) {
+          if (m.role === 'user' || m.role === 'assistant') {
+            const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []);
+            if (m.role === 'user' && text) {
+              turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]);
+              tab.hasConversation = true;
+              if (tab.title === 'Chat') setPaneTitle(tab, meta.title || text.replace(/\s+/g, ' ').slice(0, 45));
+            }
+          } else if (m.role === 'toolResult' && m.toolName === 'rich_text') {
+            const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text);
+          }
+        }
+        messages.replaceChildren(historyFragment); historyFragment = null;
+        if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath);
+        scroll.scrollTop = scroll.scrollHeight;
+      }
       else add('error', event.error || 'Could not load this chat.'); update(); renderList();
     } else if (event.type === 'response' && event.command === 'get_available_models') {
       models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); updateModelLabel(); if (!modelMenu.hidden) renderModels();
@@ -2017,7 +2034,7 @@ function closeWorkspace(id, { confirmed = false } = {}) {
   }
 }
 
-function setActive(id) {
+function setActive(id, { startChats = true } = {}) {
   state.activeId = id;
   for (const w of state.workspaces) {
     w.view.classList.toggle('active', w.id === id);
@@ -2030,7 +2047,7 @@ function setActive(id) {
     renderList();
     renderChrome();
     refreshGitPanel();
-    for (const pane of ws.panes) pane.activeTab?.startChat?.();
+    if (startChats) for (const pane of ws.panes) pane.activeTab?.startChat?.();
     saveWorkspaces();
     requestAnimationFrame(() => {
       fitWorkspace(ws);
@@ -2117,11 +2134,11 @@ function openConversation(row) {
   if (row.tab) {
     const ownerWs = row.tab.owner.ws, target = row.tab.owner;
     flattenWorkspacePanes(ownerWs, target);
-    setActive(ownerWs.id); activateTab(ownerWs, target, row.tab); return;
+    setActive(ownerWs.id, { startChats: false }); activateTab(ownerWs, target, row.tab); return;
   }
   const target = row.ws.panes[row.ws.activePaneIdx];
   flattenWorkspacePanes(row.ws, target);
-  setActive(row.ws.id);
+  setActive(row.ws.id, { startChats: false });
   addPaneTab(row.ws, target, { type: 'chat', sessionPath: row.session.path });
 }
 function relativeTime(stamp) {
@@ -2166,20 +2183,21 @@ function conversationProjectIcon(scratch = false) {
 function renderList() {
   els.list.replaceChildren();
   const query = $('#workspace-search').value.trim().toLocaleLowerCase();
+  const metadata = readLocalMap(CHAT_META_KEY), scratch = readLocalMap(SCRATCH_KEY);
   const rows = conversationRows().filter(row => {
-    const meta = chatMeta(row.key);
-    const matchesProject = projectFilter === 'all' || (projectFilter === 'scratch' ? isScratch(row.ws) : row.ws.id === projectFilter);
-    return matchesProject && !!meta.archived === showArchivedChats && `${row.title} ${isScratch(row.ws) ? 'No project' : row.ws.name} ${row.ws.cwd}`.toLocaleLowerCase().includes(query);
+    const meta = metadata[row.key] || {};
+    const matchesProject = projectFilter === 'all' || (projectFilter === 'scratch' ? !!scratch[row.ws.id] : row.ws.id === projectFilter);
+    return matchesProject && !!meta.archived === showArchivedChats && `${row.title} ${scratch[row.ws.id] ? 'No project' : row.ws.name} ${row.ws.cwd}`.toLocaleLowerCase().includes(query);
   });
-  rows.sort((a, b) => Number(!!chatMeta(b.key).pinned) - Number(!!chatMeta(a.key).pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
+  rows.sort((a, b) => Number(!!metadata[b.key]?.pinned) - Number(!!metadata[a.key]?.pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
   for (const row of rows) {
-    const { ws, tab } = row; const meta = chatMeta(row.key);
+    const { ws, tab } = row; const meta = metadata[row.key] || {}; const isScratchChat = !!scratch[ws.id];
     const card = document.createElement('div'); card.className = 'ws-card chat-card' + (tab && tab.owner.ws.id === state.activeId && tab.owner.ws.panes[tab.owner.ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
     card.dataset.id = ws.id; card.tabIndex = 0; card.draggable = true;
     card.addEventListener('dragstart', event => { draggedConversation = row; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-synthesis-chat', row.key); syncBrowserBounds(); });
-    card.addEventListener('dragend', () => { draggedConversation = null; document.querySelectorAll('.tab-drop-target').forEach(el => el.classList.remove('tab-drop-target')); syncBrowserBounds(); }); card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratch(ws) ? 'No project' : ws.name}`);
+    card.addEventListener('dragend', () => { draggedConversation = null; document.querySelectorAll('.tab-drop-target').forEach(el => el.classList.remove('tab-drop-target')); syncBrowserBounds(); }); card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratchChat ? 'No project' : ws.name}`);
     const heading = document.createElement('div'); heading.className = 'conversation-heading';
-    const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratch(ws)); const projectName = document.createElement('span'); projectName.textContent = isScratch(ws) ? 'No project' : ws.name; project.append(projectName);
+    const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratchChat); const projectName = document.createElement('span'); projectName.textContent = isScratchChat ? 'No project' : ws.name; project.append(projectName);
     const time = document.createElement('span'); time.className = 'conversation-time'; time.dataset.timestamp = String(row.modified || 0); time.textContent = relativeTime(row.modified);
     heading.append(project, time);
     const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';

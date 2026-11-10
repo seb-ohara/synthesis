@@ -86,3 +86,51 @@ test('closing the last tab closes its split while preserving the final pane', as
   assert.equal(await page.locator('.ws-view.active .tile').count(), 1);
   assert.equal(await page.locator('.ws-view.active .chat-body').count(), 1);
 });
+
+test('long chat histories render in one layout pass and preserve message order', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-history-speed-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow();
+  await page.waitForSelector('.ws-view.active .chat-body');
+  await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-model-trigger').disabled, null, { timeout: 30000 });
+  const id = await page.locator('.ws-view.active .chat-body').evaluate(el => el.id.slice('panel-'.length));
+  await page.evaluate(() => {
+    const scroll = document.querySelector('.ws-view.active .chat-scroll');
+    const getter = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight').get;
+    window.__historyLayoutReads = 0;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, get() { window.__historyLayoutReads++; return getter.call(this); } });
+  });
+  await app.evaluate(({ BrowserWindow }, tabId) => {
+    const messages = Array.from({ length: 200 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `Message ${i}` }));
+    BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id: tabId, event: { type: 'response', command: 'get_messages', success: true, data: { messages } } });
+  }, id);
+  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .chat-message').length === 200);
+  const result = await page.evaluate(() => ({ reads: window.__historyLayoutReads, texts: [...document.querySelectorAll('.ws-view.active .chat-message-content')].map(node => node.textContent) }));
+  assert.ok(result.reads <= 2, `Expected one layout read, got ${result.reads}`);
+  assert.equal(result.texts[0].trim(), 'Message 0');
+  assert.equal(result.texts.at(-1).trim(), 'Message 199');
+});
+
+test('session metadata refresh notices changes after a cached scan', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-scan-cache-'));
+  const project = path.join(temp, 'project'); const userData = path.join(temp, 'userdata'); const agentDir = path.join(temp, 'agent');
+  fs.mkdirSync(project); fs.mkdirSync(userData);
+  const dir = path.join(agentDir, 'sessions', '--' + project.replace(/^[/\\]+/, '').replace(/[/\\:]/g, '-') + '--');
+  fs.mkdirSync(dir, { recursive: true });
+  const session = path.join(dir, 'chat.jsonl');
+  fs.writeFileSync(session, JSON.stringify({ type: 'session', cwd: project }) + '\n' + JSON.stringify({ type: 'message', message: { role: 'user', content: 'First title', timestamp: 1000 } }) + '\n');
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData, PI_CODING_AGENT_DIR: agentDir }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+  const page = await app.firstWindow();
+  await page.evaluate(cwd => window.mux.app.allowRoot(cwd), project);
+  const scan = () => page.evaluate(({ cwd, file }) => window.mux.chat.sessions(cwd, [file]), { cwd: project, file: session });
+  assert.equal((await scan())[0].title, 'First title');
+  assert.equal((await scan())[0].title, 'First title');
+  fs.appendFileSync(session, JSON.stringify({ type: 'session_info', name: 'Updated title' }) + '\n' + JSON.stringify({ type: 'message', message: { role: 'assistant', content: 'Done', timestamp: 5000 } }) + '\n');
+  const updated = (await scan())[0];
+  assert.equal(updated.title, 'Updated title');
+  assert.equal(updated.modified, 5000);
+});

@@ -54,6 +54,9 @@ async function validChatSession(cwd, file) {
   } catch { return false; } finally { if (handle) await handle.close(); }
 }
 const pendingSessionScans = new Map();
+// Reuse metadata for unchanged session files, bounded to avoid unbounded memory growth.
+const sessionMetadataCache = new Map();
+const SESSION_METADATA_CACHE_LIMIT = 1000;
 function chatSessions(cwd, ownedPaths) {
   const directory = sessionDirectory(cwd);
   const names = Array.isArray(ownedPaths) ? [...new Set(ownedPaths.filter(file => typeof file === 'string' && path.dirname(file) === directory && file.endsWith('.jsonl')).map(file => path.basename(file)))].sort() : null;
@@ -74,6 +77,9 @@ async function scanChatSessions(cwd, ownedNames) {
         const file = path.join(dir, name); let handle;
         try {
           handle = await fsp.open(file, 'r'); const stat = await handle.stat();
+          const fingerprint = `${cwd}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+          const cached = sessionMetadataCache.get(file);
+          if (cached?.fingerprint === fingerprint) return cached.result;
           const buffer = Buffer.alloc(Math.min(stat.size, 65536));
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
           const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
@@ -86,8 +92,12 @@ async function scanChatSessions(cwd, ownedNames) {
           const tail = stat.size > buffer.length ? Buffer.alloc(Math.min(stat.size, 65536)) : buffer.subarray(0, bytesRead);
           if (stat.size > buffer.length) { const read = await handle.read(tail, 0, tail.length, stat.size - tail.length); if (read.bytesRead < tail.length) tail.fill(0, read.bytesRead); }
           for (const line of tail.toString('utf8').split('\n')) { try { const entry = JSON.parse(line); if (entry.type === 'message' && ['user', 'assistant'].includes(entry.message?.role) && Number.isFinite(entry.message.timestamp)) latest = Math.max(latest, entry.message.timestamp); } catch {} }
-          return { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: latest || stat.mtimeMs };
-        } catch { return null; } finally { if (handle) await handle.close(); }
+          const result = { path: file, title: (title || 'Untitled chat').replace(/\s+/g, ' ').slice(0, 80), modified: latest || stat.mtimeMs };
+          sessionMetadataCache.delete(file);
+          sessionMetadataCache.set(file, { fingerprint, result });
+          if (sessionMetadataCache.size > SESSION_METADATA_CACHE_LIMIT) sessionMetadataCache.delete(sessionMetadataCache.keys().next().value);
+          return result;
+        } catch { sessionMetadataCache.delete(file); return null; } finally { if (handle) await handle.close(); }
       }));
       results.push(...batch.filter(Boolean));
     }
