@@ -49,7 +49,7 @@ test('composer grows and its Git menu follows the active pane', async t => {
   assert.equal(await git.evaluate(el => document.activeElement === el), true);
 });
 
-test('Pi commands, formatting and working/settled groups remain usable', async t => {
+test('Pi commands and working/settled groups remain usable', async t => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-composer-tools-'));
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
@@ -63,9 +63,9 @@ test('Pi commands, formatting and working/settled groups remain usable', async t
   await app.evaluate(({ ipcMain }) => { ipcMain.removeAllListeners('chat:command'); globalThis.__commands = []; ipcMain.on('chat:command', (_event, payload) => globalThis.__commands.push(payload.message)); });
   const input = pane.locator('textarea'); await input.fill('/comp');
   await page.waitForSelector('.chat-command-option'); assert.match(await pane.locator('.chat-command-menu').innerText(), /compact/);
-  await input.fill('a\nb'); await input.focus(); await input.evaluate(el => el.setSelectionRange(0, el.value.length));
-  await pane.locator('.chat-format-toggle').click(); await pane.locator('[data-format="bullet"]').click();
-  assert.equal(await input.inputValue(), '- a\n- b');
+  assert.equal(await pane.locator('.chat-format-toggle, .chat-format-menu').count(), 0);
+  await input.fill('**Bold**\n- List item');
+  assert.equal(await input.inputValue(), '**Bold**\n- List item');
   await input.fill('/compact'); await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.chat-status-text')?.textContent === 'Compacting');
   assert.ok((await app.evaluate(() => globalThis.__commands)).some(command => command.type === 'compact'));
@@ -106,7 +106,7 @@ test('snoozed chats return at the selected time and section headers show counts'
   const id = await page.locator('.ws-view.active .chat-body').evaluate(el => el.id.slice('panel-'.length));
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'response', command: 'get_messages', success: true, data: { messages: [{ role: 'user', content: 'A snoozed conversation' }] } } }), id);
   const card = page.locator('.chat-card').filter({ hasText: 'A snoozed conversation' }); await card.waitFor(); await card.hover(); await card.locator('.conversation-snooze').click();
-  await page.locator('#snooze-dialog [data-snooze="hour"]').click();
+  await page.locator('#ctx-menu .ctx-item', { hasText: 'In 1 hour' }).click();
   assert.equal(await page.locator('[data-section="snoozed"] .chat-card').count(), 1);
   assert.ok(await page.locator('.conversation-transition').count());
   const header = page.locator('[data-section="snoozed"] .conversation-section-toggle');
@@ -117,7 +117,8 @@ test('snoozed chats return at the selected time and section headers show counts'
   assert.equal(await page.locator('.chat-card').filter({ hasText: 'A snoozed conversation' }).count(), 1);
   await card.hover(); await card.locator('.conversation-snooze').click();
   const custom = await page.evaluate(() => { const d = new Date(Date.now() + 2 * 86400000); const pad = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; });
-  await page.locator('#snooze-custom').fill(custom); await page.locator('#snooze-custom-form button').click();
+  await page.locator('#ctx-menu .ctx-item', { hasText: 'Custom…' }).click();
+  await page.locator('#snooze-date').fill(custom.slice(0, 10)); await page.locator('#snooze-time').fill(custom.slice(11)); await page.locator('#snooze-custom-form button[type="submit"]').click();
   assert.equal(await page.locator('[data-section="snoozed"] .chat-card').count(), 1);
   await page.locator('[data-section="snoozed"] .chat-card').hover(); await page.locator('[data-section="snoozed"] .conversation-snooze').click();
   assert.equal(await page.locator('[data-section="snoozed"] .chat-card').count(), 0);

@@ -185,3 +185,38 @@ test('snooze menu is usable and the empty chat has even spacing', async t => {
   await page.locator('#ctx-menu .ctx-item', { hasText: 'In 1 hour' }).click();
   assert.equal(await page.locator('.conversation-section[data-section="snoozed"] .chat-card').count(), 1);
 });
+
+test('chat pane resizing preserves composer controls at constrained widths', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-pane-minimum-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  const window = await app.browserWindow(page); await window.evaluate(win => win.setSize(1400, 800));
+  await page.locator('.ws-view.active .pane-btn[data-action="splitRight"]').click();
+  const divider = page.locator('.ws-view.active .split-divider-row').first(); await divider.waitFor();
+  let rect = await divider.boundingBox();
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2); await page.mouse.down();
+  await page.mouse.move(0, rect.y + rect.height / 2, { steps: 4 }); await page.mouse.up();
+  let widths = await page.locator('.ws-view.active .tile').evaluateAll(tiles => tiles.map(tile => tile.getBoundingClientRect().width));
+  assert.ok(widths.every(width => width >= 359), `drag produced widths ${widths}`);
+  await divider.focus(); for (let i = 0; i < 80; i++) await page.keyboard.press('ArrowRight');
+  widths = await page.locator('.ws-view.active .tile').evaluateAll(tiles => tiles.map(tile => tile.getBoundingClientRect().width));
+  assert.ok(widths.every(width => width >= 359), `keyboard resize produced widths ${widths}`);
+  await page.evaluate(() => document.querySelector('#app').style.setProperty('--ws-w', '560px'));
+  await window.evaluate(win => win.setSize(980, 800));
+  await page.waitForFunction(() => [...document.querySelectorAll('.ws-view.active .chat-body')].some(el => el.getBoundingClientRect().width < 360));
+  await page.evaluate(() => {
+    for (const body of document.querySelectorAll('.ws-view.active .chat-body')) {
+      body.querySelector('.chat-model-label').textContent = 'A very long model name that should be truncated';
+      body.querySelector('.chat-reasoning-label').textContent = 'Extra high';
+    }
+  });
+  const controls = await page.locator('.ws-view.active .chat-body').evaluateAll(bodies => bodies.map(body => {
+    const form = body.querySelector('.chat-composer').getBoundingClientRect();
+    return [...body.querySelectorAll('.chat-attach, .chat-git, .chat-model-trigger, .chat-reasoning-trigger, .chat-send')].map(button => {
+      const rect = button.getBoundingClientRect(); return rect.width > 0 && rect.left >= form.left - 1 && rect.right <= form.right + 1 && rect.top >= form.top - 1 && rect.bottom <= form.bottom + 1;
+    });
+  }));
+  assert.ok(controls.every(buttons => buttons.every(Boolean)), `controls escaped composer: ${JSON.stringify(controls)}`);
+});

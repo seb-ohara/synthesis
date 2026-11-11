@@ -112,7 +112,15 @@ const SYNTHESIS_GRADIENT = 'linear-gradient(110deg, #d9cbff 0%, #b8eaff 54%, #c4
 const SYNTHESIS_BORDER_GRADIENT = 'linear-gradient(110deg, #d9cbff86 0%, #b8eaff86 54%, #c4ffe186 100%)';
 function accentColor() { return appSettings.accentColor === 'synthesis' ? SYNTHESIS_ACCENT : appSettings.accentColor; }
 
+const BUILT_IN_THEMES = {
+  'warm-clay': { accentColor: '#b7512d', chatBackground: '#f8f5ed', sidebarColor: '#eee9dd', bubbleColor: '#eadbc9', chatText: '#302a25' },
+  'midnight-ink': { accentColor: '#a99be4', chatBackground: '#191b24', sidebarColor: '#141620', bubbleColor: '#333047', chatText: '#efedf6' },
+  'forest-moss': { accentColor: '#a7c28b', chatBackground: '#1b211d', sidebarColor: '#151b17', bubbleColor: '#304137', chatText: '#e8eee5' },
+  'ocean-slate': { accentColor: '#80bccb', chatBackground: '#19232a', sidebarColor: '#131d24', bubbleColor: '#2b424c', chatText: '#e5eef0' },
+};
+
 const DEFAULT_SETTINGS = {
+  theme: '',
   accentColor: '#ff7a1a',
   chatBackground: '#141416',
   sidebarColor: '#101011',
@@ -207,6 +215,7 @@ function loadSettings() {
     ? Number(saved.scrollback) : DEFAULT_SETTINGS.scrollback;
   return {
     ...DEFAULT_SETTINGS,
+    theme: Object.hasOwn(BUILT_IN_THEMES, saved.theme) ? saved.theme : '',
     accentColor,
     ...Object.fromEntries(['chatBackground', 'sidebarColor', 'bubbleColor', 'chatText'].map(key => [key, /^#[0-9a-f]{6}$/i.test(saved[key] || '') ? saved[key] : DEFAULT_SETTINGS[key]])),
     fontSize,
@@ -265,7 +274,13 @@ function updateShortcutTooltips() {
   });
 }
 
+function terminalTheme() {
+  const lightColors = appSettings.theme === 'warm-clay' ? { black: '#302a25', red: '#a33f2f', green: '#4c713c', yellow: '#80601c', blue: '#3e6391', magenta: '#805480', cyan: '#3e7470', white: '#ece4d6', brightBlack: '#70665c', brightRed: '#a33f2f', brightGreen: '#4c713c', brightYellow: '#80601c', brightBlue: '#3e6391', brightMagenta: '#805480', brightCyan: '#3e7470', brightWhite: '#f8f5ed' } : {};
+  return appSettings.theme ? { ...TERM_THEME, ...lightColors, background: appSettings.chatBackground, foreground: appSettings.chatText, cursor: accentColor(), cursorAccent: appSettings.chatBackground, selectionBackground: appSettings.bubbleColor } : { ...TERM_THEME, cursor: accentColor() };
+}
+
 function applySettings() {
+  document.documentElement.dataset.theme = appSettings.theme;
   window.mux.app.setTabShortcuts(Object.fromEntries(['newTab', 'closeTab', 'nextTab', 'previousTab'].map((action) => [action, normalizeShortcut(appSettings.shortcuts[action])])));
   for (const [key, variable] of Object.entries({ chatBackground: '--chat-background', sidebarColor: '--sidebar-background', bubbleColor: '--chat-bubble', chatText: '--chat-text' })) document.documentElement.style.setProperty(variable, appSettings[key]);
   const fontFamily = appSettings.chatFont.startsWith('import:') ? 'Synthesis imported ' + appSettings.chatFont.slice(7) : appSettings.chatFont;
@@ -282,7 +297,7 @@ function applySettings() {
       pane.term.options.cursorStyle = appSettings.cursorStyle;
       pane.term.options.cursorBlink = appSettings.cursorBlink;
       pane.term.options.scrollback = appSettings.scrollback;
-      pane.term.options.theme = { ...TERM_THEME, cursor: accentColor() };
+      pane.term.options.theme = terminalTheme();
       fitSafely(pane);
     }
   }
@@ -514,6 +529,39 @@ function ensureSplitWeights(node) {
   }
 }
 
+const MIN_CHAT_PANE_WIDTH = 360;
+const MIN_OTHER_PANE_WIDTH = 160;
+const SPLIT_GUTTER = 10; // Divider plus the split's two one-pixel gaps.
+function minimumPaneWidth(node) {
+  if (node.type === 'leaf') return node.pane.activeTab?.type === 'chat' ? MIN_CHAT_PANE_WIDTH : MIN_OTHER_PANE_WIDTH;
+  const widths = node.children.map(minimumPaneWidth);
+  return node.dir === 'row' ? widths.reduce((sum, width) => sum + width, 0) + SPLIT_GUTTER * (widths.length - 1) : Math.max(...widths);
+}
+function constrainSplitWidths(node, splitEl) {
+  if (node.dir !== 'row' || !splitEl.isConnected) return;
+  ensureSplitWeights(node);
+  const usable = splitEl.clientWidth - SPLIT_GUTTER * (node.children.length - 1);
+  if (usable <= 0) return;
+  const mins = node.children.map(minimumPaneWidth), minimumTotal = mins.reduce((sum, value) => sum + value, 0);
+  // When the window is too small, share the available width proportionally;
+  // the compact composer keeps controls accessible until there is room again.
+  const limits = mins.map(value => value * Math.min(1, usable / minimumTotal));
+  const totalWeight = node.weights.reduce((sum, value) => sum + value, 0);
+  const sizes = node.weights.map(weight => usable * weight / totalWeight);
+  const fixed = new Set();
+  for (let pass = 0; pass < sizes.length; pass++) {
+    let changed = false;
+    for (let i = 0; i < sizes.length; i++) if (!fixed.has(i) && sizes[i] < limits[i] - 0.01) { sizes[i] = limits[i]; fixed.add(i); changed = true; }
+    if (!changed) break;
+    const remaining = usable - [...fixed].reduce((sum, i) => sum + sizes[i], 0);
+    const remainingWeight = node.weights.reduce((sum, weight, i) => sum + (fixed.has(i) ? 0 : weight), 0);
+    if (remainingWeight > 0) sizes.forEach((_, i) => { if (!fixed.has(i)) sizes[i] = remaining * node.weights[i] / remainingWeight; });
+  }
+  const weights = sizes.map(size => size / usable * totalWeight);
+  if (weights.some((weight, i) => Math.abs(weight - node.weights[i]) > 0.0001)) { node.weights = weights; applySplitWeights(node, splitEl); }
+}
+function constrainWorkspaceSplits(ws) { for (const [node, el] of ws.splitLayouts || []) constrainSplitWidths(node, el); }
+
 function applySplitWeights(node, splitEl) {
   ensureSplitWeights(node);
   const childEls = [...splitEl.children].filter((child) => !child.classList.contains('split-divider'));
@@ -527,15 +575,17 @@ function resizeSplitBoundary(node, splitEl, boundary, delta) {
   const isRow = node.dir === 'row';
   const bounds = splitEl.getBoundingClientRect();
   const fullSize = isRow ? bounds.width : bounds.height;
-  const dividerSize = 8;
+  const dividerSize = SPLIT_GUTTER;
   const usableSize = fullSize - dividerSize * Math.max(0, node.children.length - 1);
   if (usableSize <= 0) return;
 
   const pairWeight = node.weights[boundary] + node.weights[boundary + 1];
   const pairSize = usableSize * pairWeight / node.weights.reduce((sum, value) => sum + value, 0);
   const firstSize = pairSize * node.weights[boundary] / pairWeight;
-  const minSize = Math.min(96, pairSize / 2);
-  const nextFirstSize = Math.max(minSize, Math.min(pairSize - minSize, firstSize + delta));
+  const firstMin = isRow ? minimumPaneWidth(node.children[boundary]) : 96;
+  const secondMin = isRow ? minimumPaneWidth(node.children[boundary + 1]) : 96;
+  const scale = Math.min(1, pairSize / (firstMin + secondMin));
+  const nextFirstSize = Math.max(firstMin * scale, Math.min(pairSize - secondMin * scale, firstSize + delta));
   node.weights[boundary] = pairWeight * nextFirstSize / pairSize;
   node.weights[boundary + 1] = pairWeight - node.weights[boundary];
   applySplitWeights(node, splitEl);
@@ -596,6 +646,7 @@ function renderNode(node, ws) {
   if (node.type === 'leaf') return node.pane.tile;
   const el = document.createElement('div');
   el.className = 'split ' + (node.dir === 'row' ? 'split-row' : 'split-col');
+  ws.splitLayouts.push([node, el]); ws.splitResizeObserver.observe(el);
   ensureSplitWeights(node);
   node.children.forEach((child, index) => {
     const childEl = renderNode(child, ws);
@@ -609,6 +660,8 @@ function renderNode(node, ws) {
 }
 
 function refreshView(ws) {
+  ws.splitResizeObserver?.disconnect(); ws.splitLayouts = [];
+  ws.splitResizeObserver = new ResizeObserver(() => constrainWorkspaceSplits(ws));
   ws.view.innerHTML = '';
   ws.view.className = 'ws-view' + (ws.id === state.activeId ? ' active' : '');
   const root = renderNode(ws.tree, ws);
@@ -987,7 +1040,7 @@ function initTerminalPane(ws, pane) {
     cursorStyle: appSettings.cursorStyle,
     scrollback: appSettings.scrollback,
     macOptionIsMeta: true,
-    theme: { ...TERM_THEME, cursor: accentColor() },
+    theme: terminalTheme(),
     allowProposedApi: true,
   });
   const fit = new FitAddon.FitAddon();
@@ -1503,6 +1556,7 @@ function activateTab(ws, pane, tab, focus = true) {
   if (ws.id === state.activeId) { tab.startChat?.(); tab.loadRestoredDocument?.(); }
   pane.tabs.forEach((item) => item.body.classList.toggle('tab-hidden', item !== tab));
   updatePaneSurfaceChrome(pane);
+  constrainWorkspaceSplits(ws);
   if (tab.type === 'terminal' && tab.status !== 'live') setPaneStatus(ws, tab, tab.status);
   ws.activePaneIdx = ws.panes.indexOf(pane);
   ws.panes.forEach((item) => item.tile.classList.toggle('active', item === pane));
@@ -1598,7 +1652,7 @@ function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body', 'chat-empty');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><img class="chat-model-icon" alt="" aria-hidden="true" hidden><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><img class="chat-model-icon" alt="" aria-hidden="true" hidden><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1621,7 +1675,6 @@ function initChatPane(ws, tab) {
   composerObserver.observe(form); tab.unsubs.push(() => composerObserver.disconnect());
   const button = form.querySelector('.chat-send');
   const commandMenu = form.querySelector('.chat-command-menu');
-  const formatMenu = form.querySelector('.chat-format-menu'), formatToggle = form.querySelector('.chat-format-toggle');
   const builtinCommands = [
     { name: 'model', description: 'Choose a model', builtin: true },
     { name: 'thinking', description: 'Choose a reasoning level', builtin: true },
@@ -1656,18 +1709,8 @@ function initChatPane(ws, tab) {
     input.focus(); resizeInput(); update();
     if (item.builtin && !item.argument) form.requestSubmit();
   }
-  const dismissComposerMenus = event => { if (!form.contains(event.target)) { commandMenu.hidden = true; formatMenu.hidden = true; formatToggle.setAttribute('aria-expanded', 'false'); } };
+  const dismissComposerMenus = event => { if (!form.contains(event.target)) commandMenu.hidden = true; };
   document.addEventListener('pointerdown', dismissComposerMenus); tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissComposerMenus));
-  formatToggle.addEventListener('click', () => { formatMenu.hidden = !formatMenu.hidden; formatToggle.setAttribute('aria-expanded', String(!formatMenu.hidden)); });
-  formatMenu.addEventListener('mousedown', event => event.preventDefault());
-  formatMenu.addEventListener('click', event => {
-    const format = event.target.closest('[data-format]')?.dataset.format; if (!format) return;
-    const start = input.selectionStart, end = input.selectionEnd, selected = input.value.slice(start, end), lines = selected || (format === 'bullet' || format === 'number' ? 'List item' : 'text');
-    const replacement = format === 'bold' ? `**${lines}**` : format === 'italic' ? `*${lines}*` : lines.split('\n').map((line, i) => (format === 'bullet' ? '- ' : `${i + 1}. `) + line).join('\n');
-    input.focus(); input.setSelectionRange(start, end);
-    if (!document.execCommand('insertText', false, replacement)) input.setRangeText(replacement, start, end, 'end');
-    formatMenu.hidden = true; formatToggle.setAttribute('aria-expanded', 'false'); input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
   form.querySelector('.chat-git').addEventListener('click', event => {
     const trigger = event.currentTarget;
     if (!$('#git-panel').hidden && gitAnchor === trigger) setFsCollapsed(true);
@@ -2357,6 +2400,7 @@ function closeWorkspace(id, { confirmed = false } = {}) {
   if (ws.activityTimer) clearTimeout(ws.activityTimer);
   for (const p of ws.panes) disposePane(p);
   for (const tab of ws.parkedTabs || []) disposeTab(tab);
+  ws.splitResizeObserver?.disconnect();
   ws.view.remove();
   state.workspaces.splice(idx, 1);
   saveWorkspaces();
@@ -4013,6 +4057,11 @@ function renderSettings() {
   const customColor = $('#setting-accent-custom');
   if (!customColor) return;
   customColor.value = accentColor();
+  document.querySelectorAll('[data-theme-preset]').forEach(button => {
+    const values = BUILT_IN_THEMES[button.dataset.themePreset];
+    const selected = appSettings.theme === button.dataset.themePreset && Object.entries(values).every(([key, value]) => appSettings[key].toLowerCase() === value.toLowerCase());
+    button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
+  });
   document.querySelectorAll('.accent-swatch').forEach((swatch) => {
     const selected = swatch.dataset.accent.toLowerCase() === appSettings.accentColor.toLowerCase();
     swatch.classList.toggle('selected', selected);
@@ -4208,6 +4257,11 @@ $('#settings-backdrop').addEventListener('click', (e) => {
 $('#settings-tabs').addEventListener('click', (e) => {
   const tab = e.target.closest('[data-settings-tab]');
   if (tab) setSettingsTab(tab.dataset.settingsTab);
+});
+$('#theme-presets').addEventListener('click', event => {
+  const button = event.target.closest('[data-theme-preset]');
+  const theme = button?.dataset.themePreset;
+  if (theme && Object.hasOwn(BUILT_IN_THEMES, theme)) updateAppSettings({ theme, ...BUILT_IN_THEMES[theme] });
 });
 $('#accent-presets').addEventListener('click', (e) => {
   const swatch = e.target.closest('[data-accent]');
