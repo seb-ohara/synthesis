@@ -39,7 +39,7 @@ test('compact Git menu reviews the active project changes and commits', async t 
   await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Test project', cwd }); setActive(ws.id); }, dir);
   await page.locator('.ws-view.active .chat-git').click();
   await page.waitForFunction(() => !document.querySelector('#git-repo').hidden);
-  assert.equal(await page.locator('#git-repo > details.git-group').count(), 2);
+  assert.equal(await page.locator('#git-repo > details.git-group').count(), 1);
   assert.equal(await page.locator('.git-remote-container').isVisible(), false);
   const layout = await page.evaluate(() => {
     const box = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
@@ -50,18 +50,21 @@ test('compact Git menu reviews the active project changes and commits', async t 
   assert.ok(Math.abs(layout.branch.width - layout.action.width) < 1 && Math.abs(layout.branch.height - layout.action.height) < 1, JSON.stringify(layout));
   assert.ok(Math.abs((layout.toggle.x + layout.toggle.width / 2) - (layout.arrow.x + layout.arrow.width / 2)) < 1 && Math.abs((layout.toggle.y + layout.toggle.height / 2) - (layout.arrow.y + layout.arrow.height / 2)) < 1, JSON.stringify(layout));
   await page.locator('#git-action-toggle').click();
+  await page.waitForFunction(() => { const b = document.querySelector('#git-commit').getBoundingClientRect(); return document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('#git-action-options'); });
   assert.deepEqual(await page.locator('#git-action-options [role=menuitem]').allTextContents(), ['Commit', 'Push', 'Create PR']);
   await page.locator('#git-action-toggle').click();
   assert.match(await page.locator('#git-count').innerText(), /\+1[\s\S]*−1/);
   const appearance = await page.evaluate(() => ({ added: getComputedStyle(document.querySelector('.git-count-added')).color, deleted: getComputedStyle(document.querySelector('.git-count-deleted')).color, gap: getComputedStyle(document.querySelector('.git-count')).gap, menu: getComputedStyle(document.querySelector('#git-panel')).backgroundColor, composer: getComputedStyle(document.querySelector('.ws-view.active .chat-composer')).backgroundColor }));
   assert.equal(appearance.added, 'rgb(135, 204, 152)'); assert.equal(appearance.deleted, 'rgb(230, 148, 148)');
   assert.equal(appearance.gap, '9px'); assert.equal(appearance.menu, appearance.composer);
-  await page.locator('#git-repo > details.git-group').nth(1).locator('summary').click();
   await page.locator('#git-review-open').click();
+  assert.equal(await page.locator('#git-review-dialog').evaluate(el => el.open), true);
+  assert.match(await page.locator('#git-changes').innerText(), /test.txt.*\+1.*−1/s);
   await page.waitForFunction(() => document.querySelector('#git-review-output').textContent.includes('+after'));
   await page.locator('#git-review-scope').selectOption('commit');
   await page.waitForFunction(() => document.querySelector('#git-review-output').textContent.includes('Initial commit'));
   await page.locator('#git-review-close').click();
+  await page.locator('.ws-view.active .chat-git').click();
   assert.equal(await page.locator('#git-menu-content').isVisible(), true);
   assert.equal(await page.locator('#git-message').count(), 0);
   assert.equal(await page.locator('#git-open-finder').isVisible(), true);
@@ -69,11 +72,6 @@ test('compact Git menu reviews the active project changes and commits', async t 
   await page.locator('#git-open-finder').click();
   await page.locator('#git-open-repository').click();
   assert.deepEqual(await app.evaluate(() => globalThis.__gitShortcutCalls), [{ action: 'finder', cwd: dir }, { action: 'repo', cwd: dir }]);
-  await page.locator('#git-action-toggle').click();
-  await page.locator('#git-commit').click();
-  await page.waitForFunction(() => document.querySelector('#git-feedback').textContent.includes('No staged changes'));
-  await page.locator('#git-stage-all').click();
-  await page.waitForFunction(() => !document.querySelector('#git-unstage-all').disabled);
   await page.locator('#git-commit-push').click();
   await page.waitForFunction(() => document.querySelector('#git-default-dialog').open);
   await page.locator('#git-dialog-abort').click();
@@ -125,18 +123,14 @@ test('repository connection is visible and the menu remains usable in a short sp
   await page.waitForFunction(() => document.querySelector('.git-remote-container').hidden);
   const connected = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8' }).trim();
   assert.equal(connected, remote);
-  await page.locator('#git-repo > details.git-group').nth(1).locator('summary').click();
-  const lastButton = page.locator('#git-unstage-all');
-  await lastButton.scrollIntoViewIfNeeded();
+  await page.locator('#git-review-open').click();
   const geometry = await page.evaluate(() => {
-    const panel = document.querySelector('#git-panel').getBoundingClientRect();
-    const control = document.querySelector('#git-unstage-all').getBoundingClientRect();
-    const scroll = document.querySelector('#git-menu-content');
-    return { top: panel.top, bottom: panel.bottom, height: innerHeight, controlTop: control.top, controlBottom: control.bottom, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight };
+    const panel = document.querySelector('#git-review-dialog').getBoundingClientRect();
+    return { top: panel.top, bottom: panel.bottom, height: innerHeight, files: document.querySelectorAll('#git-changes .git-file').length };
   });
   assert.ok(geometry.top >= 0 && geometry.bottom <= geometry.height, JSON.stringify(geometry));
-  assert.ok(geometry.scrollHeight > geometry.clientHeight && geometry.scrollTop > 0, JSON.stringify(geometry));
-  assert.ok(geometry.controlTop >= geometry.top && geometry.controlBottom <= geometry.bottom, JSON.stringify(geometry));
+  assert.equal(geometry.files, 35);
+  await page.locator('#git-review-close').click();
 });
 
 test('default branch prompt creates a feature branch before commit and push', async t => {

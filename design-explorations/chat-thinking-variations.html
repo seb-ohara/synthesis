@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat thinking animation variations</title>
+<style>
+  :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #181818; color: #e9e9e9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main { max-width: 1020px; margin: 0 auto; padding: 60px 30px 80px; }
+  header { max-width: 620px; margin-bottom: 42px; }
+  .overline { color: #909090; font-size: 12px; margin: 0 0 14px; }
+  h1 { font-size: clamp(27px, 4vw, 38px); font-weight: 600; letter-spacing: -.035em; margin: 0 0 12px; }
+  header p:last-child { color: #a7a7a7; font-size: 14px; line-height: 1.6; margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 20px; }
+  article { min-width: 0; }
+  .caption { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 10px; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  .caption span { color: #888; font-size: 12px; text-align: right; }
+  .chat { height: 235px; background: #202020; border: 1px solid #3a3a3a; border-radius: 9px; overflow: hidden; display: flex; flex-direction: column; }
+  .chat-header { height: 37px; border-bottom: 1px solid #363636; display: flex; align-items: center; padding: 0 15px; font-size: 11px; color: #a5a5a5; }
+  .thread { padding: 24px 24px 15px; flex: 1; font-size: 13px; line-height: 1.5; }
+  .prompt { color: #d0d0d0; margin: 0 0 26px auto; background: #303030; border-radius: 9px; padding: 9px 12px; width: fit-content; max-width: 90%; }
+  .status { display: flex; align-items: center; gap: 9px; color: #929292; min-height: 22px; }
+  .composer { margin: 0 16px 14px; border: 1px solid #484848; border-radius: 7px; height: 31px; padding: 7px 10px; color: #858585; font-size: 11px; }
+  .sweep { color: #909090; background: linear-gradient(90deg, #909090 0%, #909090 35%, #fff 50%, #909090 65%, #909090 100%); background-size: 300% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: sweep 2.6s linear infinite; }
+  @keyframes sweep { 0% { background-position: 100% 0; } 65%, 100% { background-position: 0 0; } }
+  .breathe { animation: breathe 2.2s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { color: #858585; } 50% { color: #fff; } }
+  .dots { display: inline-flex; gap: 3px; align-items: center; }
+  .dots i { width: 4px; height: 4px; border-radius: 50%; background: #777; animation: dot 1.35s ease-in-out infinite; }
+  .dots i:nth-child(2) { animation-delay: .18s; } .dots i:nth-child(3) { animation-delay: .36s; }
+  @keyframes dot { 0%, 70%, 100% { background: #777; } 35% { background: #fff; } }
+  .wave span { animation: letter 1.8s ease-in-out infinite; }
+  .wave span:nth-child(2) { animation-delay: .09s; } .wave span:nth-child(3) { animation-delay: .18s; } .wave span:nth-child(4) { animation-delay: .27s; } .wave span:nth-child(5) { animation-delay: .36s; } .wave span:nth-child(6) { animation-delay: .45s; } .wave span:nth-child(7) { animation-delay: .54s; } .wave span:nth-child(8) { animation-delay: .63s; } .wave span:nth-child(9) { animation-delay: .72s; }
+  @keyframes letter { 0%, 55%, 100% { color: #909090; } 25% { color: #fff; } }
+  .orbit { width: 12px; height: 12px; border: 1.5px solid #686868; border-top-color: #fff; border-radius: 50%; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .underline { position: relative; display: inline-block; padding-bottom: 4px; }
+  .underline::after { content: ""; position: absolute; bottom: 0; left: 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, #fff, transparent); background-size: 45% 100%; background-repeat: no-repeat; animation: line 2.1s ease-in-out infinite; }
+  @keyframes line { 0%, 100% { background-position: 0% 0; opacity: .5; } 50% { background-position: 100% 0; opacity: 1; } }
+  @media (max-width: 650px) { main { padding: 36px 20px 55px; } .grid { grid-template-columns: 1fr; } .chat { height: 220px; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } .sweep { background: none; -webkit-text-fill-color: #c4c4c4; } .underline::after { background: #aaa; } }
+</style>
+</head>
+<body>
+<main>
+  <header><p class="overline">Synthesis / Chat</p><h1>Thinking, in five ways</h1><p>Five quiet variations of the in-chat working state. Each uses grey as its resting colour and white for the moving highlight.</p></header>
+  <div class="grid">
+    <article><div class="caption"><h2>Light sweep</h2><span>A soft highlight travels across the text</span></div><div class="chat"><div class="chat-header">Chat</div><div class="thread"><p class="prompt">Help me think through an idea.</p><div class="status" role="status"><span class="sweep">Thinking…</span></div></div><div class="composer">Ask anything…</div></div></article>
+    <article><div class="caption"><h2>Breathing light</h2><span>The whole label gently brightens</span></div><div class="chat"><div class="chat-header">Chat</div><div class="thread"><p class="prompt">Help me think through an idea.</p><div class="status" role="status"><span class="breathe">Thinking…</span></div></div><div class="composer">Ask anything…</div></div></article>
+    <article><div class="caption"><h2>Passing dots</h2><span>Three dots light up in sequence</span></div><div class="chat"><div class="chat-header">Chat</div><div class="thread"><p class="prompt">Help me think through an idea.</p><div class="status" role="status"><span>Thinking</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div></div><div class="composer">Ask anything…</div></div></article>
+    <article><div class="caption"><h2>Letter wave</h2><span>White passes from letter to letter</span></div><div class="chat"><div class="chat-header">Chat</div><div class="thread"><p class="prompt">Help me think through an idea.</p><div class="status" role="status" aria-label="Thinking"><span class="wave" aria-hidden="true"><span>T</span><span>h</span><span>i</span><span>n</span><span>k</span><span>i</span><span>n</span><span>g</span><span>…</span></span></div></div><div class="composer">Ask anything…</div></div></article>
+    <article><div class="caption"><h2>Orbit</h2><span>A small highlight circles beside the label</span></div><div class="chat"><div class="chat-header">Chat</div><div class="thread"><p class="prompt">Help me think through an idea.</p><div class="status" role="status"><span class="orbit" aria-hidden="true"></span><span>Thinking…</span></div></div><div class="composer">Ask anything…</div></div></article>
+  </div>
+</main>
+</body>
+</html>

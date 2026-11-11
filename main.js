@@ -200,6 +200,76 @@ ipcMain.on('chat:command', (_e, { id, message }) => {
 });
 ipcMain.on('chat:stop', (_e, id) => { if (validSessionId(id)) chatManager.stop(id); });
 
+/* ---------------- Recurring tasks (per-user macOS launch agent) ---------------- */
+const scheduledTasks = require('./lib/scheduled-tasks');
+const scheduledAgentLabel = 'com.seb-ohara.synthesis.scheduled-tasks';
+function launchctl(args) { return new Promise((resolve, reject) => execFile('/bin/launchctl', args, { timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error((stderr || error.message).trim())) : resolve(stdout))); }
+let scheduledAgentPending = null, scheduledAgentError = '';
+async function installScheduledAgent() {
+  const dir = getSupportDir(), libDir = path.join(dir, 'lib'); fs.mkdirSync(libDir, { recursive: true, mode: 0o700 });
+  for (const [source, destination] of [[path.join(__dirname, 'scheduler-worker.js'), path.join(dir, 'scheduler-worker.js')], [path.join(__dirname, 'lib/scheduled-tasks.js'), path.join(libDir, 'scheduled-tasks.js')]]) {
+    const tmp = destination + '.' + randomUUID() + '.tmp'; fs.copyFileSync(source, tmp); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, destination);
+  }
+  if (process.env.SYNTHESIS_SCHEDULER_TEST === '1') return;
+  if (process.platform !== 'darwin') throw new Error('Background scheduling is currently available on macOS.');
+  const node = findSystemNode(); if (!node) throw new Error('Node.js is required for background scheduled tasks.');
+  const plistDir = path.join(os.homedir(), 'Library/LaunchAgents'); fs.mkdirSync(plistDir, { recursive: true, mode: 0o700 });
+  const plist = path.join(plistDir, scheduledAgentLabel + '.plist');
+  const xml = scheduledTasks.launchAgentPlist({ label: scheduledAgentLabel, node, worker: path.join(dir, 'scheduler-worker.js'), directory: dir, home: os.homedir() });
+  const tmp = plist + '.' + randomUUID() + '.tmp'; fs.writeFileSync(tmp, xml, { mode: 0o600 }); fs.renameSync(tmp, plist);
+  const domain = 'gui/' + process.getuid();
+  try { await launchctl(['print', domain + '/' + scheduledAgentLabel]); }
+  catch { try { await launchctl(['bootstrap', domain, plist]); } catch (error) { throw new Error('Could not start the macOS task scheduler: ' + error.message); } }
+}
+function ensureScheduledAgent() {
+  if (!scheduledAgentPending) scheduledAgentPending = installScheduledAgent().then(() => { scheduledAgentError = ''; }).catch(error => { scheduledAgentError = error.message; throw error; }).finally(() => { scheduledAgentPending = null; });
+  return scheduledAgentPending;
+}
+ipcMain.handle('scheduled:list', () => {
+  try {
+    const dir = getSupportDir(), tasks = scheduledTasks.readTasks(dir), runs = scheduledTasks.readRuns(dir);
+    return { ok: true, agentError: scheduledAgentError, tasks: tasks.map(task => ({ ...task, nextRun: task.enabled ? scheduledTasks.dueAt(task, runs[task.id]) : null, run: runs[task.id] || null })), runs };
+  } catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('scheduled:discover', (_event, offset) => {
+  let fd;
+  try {
+    const file = path.join(getSupportDir(), 'scheduled-task-sessions.jsonl');
+    fd = fs.openSync(file, 'r'); const size = fs.fstatSync(fd).size;
+    const start = Number.isSafeInteger(offset) && offset >= 0 && offset <= size ? offset : 0;
+    const buffer = Buffer.alloc(Math.min(262144, size - start)); const count = fs.readSync(fd, buffer, 0, buffer.length, start);
+    if (!count) return { ok: true, entries: [], offset: start, more: false };
+    const end = buffer.lastIndexOf(10, count - 1);
+    if (end < 0) throw new Error('Invalid scheduled session log.');
+    const entries = buffer.subarray(0, end).toString('utf8').split('\n').flatMap(line => { try { const entry = JSON.parse(line); return entry && typeof entry.sessionPath === 'string' ? [entry] : []; } catch { return []; } });
+    const next = start + end + 1; return { ok: true, entries, offset: next, more: next < size };
+  } catch (error) { if (error.code === 'ENOENT') return { ok: true, entries: [], offset: 0, more: false }; return { ok: false, error: error.message }; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+});
+ipcMain.handle('scheduled:save', async (_event, input) => {
+  try {
+    const task = scheduledTasks.validateTask(input), cwd = pathGuard.resolveAllowed(task.cwd);
+    if (!cwd || !fs.statSync(cwd).isDirectory()) throw new Error('The project folder is unavailable.');
+    task.cwd = cwd;
+    const dir = getSupportDir(), tasks = scheduledTasks.readTasks(dir);
+    const existing = input.id ? tasks.find(item => item.id === input.id) : null;
+    if (input.id && !existing) throw new Error('Scheduled task no longer exists.');
+    if (!existing && tasks.length >= 100) throw new Error('The limit is 100 scheduled tasks.');
+    await ensureScheduledAgent();
+    const now = Date.now(), saved = { ...task, id: existing?.id || randomUUID(), enabled: existing ? existing.enabled : true, createdAt: existing?.createdAt || now, notBefore: now };
+    if (existing) tasks[tasks.indexOf(existing)] = saved; else tasks.push(saved);
+    scheduledTasks.saveTasks(dir, tasks); return { ok: true, task: saved };
+  } catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('scheduled:toggle', async (_event, id) => {
+  try { const dir = getSupportDir(), tasks = scheduledTasks.readTasks(dir), task = tasks.find(item => item.id === id); if (!task) throw new Error('Scheduled task no longer exists.'); if (!task.enabled) await ensureScheduledAgent(); task.enabled = !task.enabled; task.notBefore = Date.now(); scheduledTasks.saveTasks(dir, tasks); return { ok: true }; }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('scheduled:delete', (_event, id) => {
+  try { const dir = getSupportDir(), tasks = scheduledTasks.readTasks(dir); scheduledTasks.saveTasks(dir, tasks.filter(item => item.id !== id)); return { ok: true }; }
+  catch (error) { return { ok: false, error: error.message }; }
+});
+
 /* ---------------- persistent PTY daemon client ---------------- */
 
 let supportDir = null;
@@ -653,6 +723,7 @@ ipcMain.handle('dialog:pick', async () => {
 app.whenReady().then(() => {
   session.fromPartition('persist:synthesis-browser').protocol.handle('synthesis-doc', documents.handle);
   getSupportDir();
+  try { if (scheduledTasks.readTasks(getSupportDir()).some(task => task.enabled)) ensureScheduledAgent().catch(error => console.error('Scheduled tasks:', error.message)); } catch (error) { console.error('Scheduled tasks:', error.message); }
   createWindow();
   connectDaemon(); // warm up early; sessions may be waiting to reattach
 });

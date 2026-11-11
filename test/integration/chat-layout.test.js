@@ -132,3 +132,19 @@ test('session metadata refresh notices changes after a cached scan', async t => 
   assert.equal(updated.title, 'Updated title');
   assert.equal(updated.modified, 5000);
 });
+
+test('browser panes can hold multiple tabs without mixing them with chats', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-browser-tabs-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  const types = await page.evaluate(() => {
+    const ws = activeWs(), pane = ws.panes[0];
+    addPaneTab(ws, pane, { type: 'browser' }); addPaneTab(ws, pane, { type: 'browser' });
+    const browsers = pane.tabs.filter(tab => tab.type !== 'terminal').map(tab => tab.type);
+    addPaneTab(ws, pane, { type: 'chat' });
+    return { browsers, chats: pane.tabs.filter(tab => tab.type !== 'terminal').map(tab => tab.type) };
+  });
+  assert.deepEqual(types, { browsers: ['browser', 'browser'], chats: ['chat'] });
+});

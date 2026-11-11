@@ -1967,3 +1967,85 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 
 /* The current OpenRouter glyph is supplied by OpenRouter. */
 .chat-model-provider img[src="icons/openrouter.svg"] { filter: none; }
+
+/* Working and settled conversations remain easy to scan at the bottom. */
+.conversation-section-items { display: flex; flex-direction: column; gap: 4px; }
+.conversation-section-items[hidden] { display: none; }
+.conversation-section-toggle { width: 100%; border: 0; border-radius: 6px; padding: 8px 5px; text-align: left; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
+.conversation-section-toggle:hover { color: var(--text); background: #ffffff0b; }
+.conversation-section[data-section="working"] .chat-card { animation: sidebar-chat-arrive 180ms ease-out; }
+@keyframes sidebar-chat-arrive { from { opacity: .5; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .conversation-section[data-section="working"] .chat-card { animation: none; } }
+
+/* Model and reasoning selection uses neutral highlights. */
+.chat-compose-bottom .chat-model-star, .chat-model-check, .chat-reasoning-option span { color: var(--text); }
+.chat-model-nav { display: flex; flex-direction: column; gap: 3px; }
+.chat-reasoning-menu { width: 150px; }
+.chat-compose-bottom .chat-reasoning-option { padding: 6px 8px; }
+.chat-compose-bottom .chat-reasoning-option:hover, .chat-compose-bottom .chat-reasoning-option:focus-visible { background: #ffffff12; }
+#workspace-list > .conversation-section-items { flex: 1 0 auto; }
+#git-panel .git-changes-button { display: flex; align-items: center; gap: 10px; width: calc(100% - 10px); min-height: 34px; margin: 0 5px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font: 12px var(--sans); }
+.git-changes-button > span:nth-child(2) { flex: 1; }
+.git-changes-button svg { flex: none; width: 17px; height: 17px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; }
+#git-panel #git-action-options, .git-branch-group .git-group-content { position: fixed; z-index: 110; width: 200px; margin: 0; padding: 7px; border: 1px solid #46424c; border-radius: 8px; background: #242327; box-shadow: 0 10px 30px #0009; }
+#git-review-dialog { width: min(850px, calc(100vw - 32px)); height: min(620px, calc(100vh - 32px)); max-width: none; max-height: none; padding: 0; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
+#git-review-dialog::backdrop { background: #0009; }
+#git-review { width: 100%; height: 100%; }
+.git-review-body { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--line); }
+.git-review-files { flex: 0 0 min(260px, 38%); overflow: auto; padding: 8px; border-right: 1px solid var(--line); }
+.git-review-diff { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.git-file { gap: 9px; padding: 7px 5px; }
+.git-file span:first-child { flex: 1; }
+.git-file span.git-file-added, .git-file span.git-file-deleted { flex: none; }
+.git-file-added { color: #87cc98; } .git-file-deleted { color: #e69494; }
+
+/* Composer tools use the same neutral popover surfaces as the rest of the app. */
+.chat-compose-bottom .chat-format-toggle { flex: none; width: 28px; height: 28px; border-radius: 6px; background: transparent; color: var(--muted); font: 500 12px var(--sans); }
+.chat-compose-bottom .chat-format-toggle:hover { background: #ffffff12; color: var(--text); }
+.chat-command-menu, .chat-format-menu { position: absolute; left: 0; bottom: calc(100% + 8px); width: min(320px, 100%); max-height: min(280px, 40vh); overflow-y: auto; padding: 5px; border: 1px solid #46424c; border-radius: 10px; background: #242327; box-shadow: 0 12px 28px #0009; z-index: 30; }
+.chat-command-menu[hidden], .chat-format-menu[hidden] { display: none; }
+.chat-command-option, .chat-format-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: 12px var(--sans); cursor: pointer; }
+.chat-command-option[aria-selected="true"], .chat-command-option:hover, .chat-format-menu button:hover { background: #ffffff12; }
+.chat-command-option span { flex: none; } .chat-command-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.chat-format-menu { left: 68px; width: 155px; }
+.conversation-settle { opacity: 0; flex: none; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: 10px var(--sans); cursor: pointer; }
+.chat-card:hover .conversation-settle, .chat-card:focus-within .conversation-settle { opacity: 1; }
+.conversation-settle:hover { background: #ffffff14; color: var(--text); }
+
+.chat-reasoning-option span { color: var(--muted); }
+.conversation-section-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.conversation-section-tail { display: inline-flex; align-items: center; gap: 14px; }
+.conversation-section-chevron { width: 12px; font-size: 16px; text-align: center; }
+.conversation-snooze { opacity: 0; flex: none; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: 10px var(--sans); cursor: pointer; }
+.chat-card:hover .conversation-snooze, .chat-card:focus-within .conversation-snooze { opacity: 1; }
+.conversation-snooze:hover { background: #ffffff14; color: var(--text); }
+#snooze-dialog { width: min(320px, calc(100vw - 32px)); padding: 16px; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
+#snooze-dialog::backdrop { background: #0009; }
+.schedule-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.schedule-dialog-header h2 { margin: 0; font-size: 15px; }
+.schedule-dialog-header > button { border: 0; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; }
+.snooze-options { display: flex; flex-direction: column; gap: 3px; margin: 12px 0; }
+.snooze-options button, #snooze-custom-form button { padding: 8px; border: 0; border-radius: 6px; background: #ffffff0a; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.snooze-options button:hover, #snooze-custom-form button:hover { background: #ffffff18; }
+#snooze-custom-form { display: grid; gap: 8px; font-size: 12px; }
+#snooze-custom { width: 100%; padding: 8px; border: 1px solid #514b57; border-radius: 6px; background: #1b1a1d; color: var(--text); font: inherit; color-scheme: dark; }
+#snooze-error { color: #e69494; }
+.scheduled-tasks-trigger { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; }
+.scheduled-tasks-trigger svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#scheduled-tasks-dialog { width: min(540px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px)); padding: 18px; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
+#scheduled-tasks-dialog::backdrop { background: #0009; }
+.schedule-hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+#scheduled-list { display: flex; flex-direction: column; gap: 7px; }
+.scheduled-task { padding: 10px; border-radius: 7px; background: #ffffff0a; font-size: 13px; }
+.scheduled-task .schedule-hint { margin: 4px 0; overflow-wrap: anywhere; }
+.schedule-controls, .schedule-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
+#scheduled-tasks-dialog button:not(.schedule-dialog-header button) { padding: 7px 9px; border: 0; border-radius: 6px; background: #ffffff10; color: var(--text); font: 12px var(--sans); cursor: pointer; }
+#scheduled-tasks-dialog button:not(.schedule-dialog-header button):hover { background: #ffffff20; }
+#scheduled-new { margin-top: 10px; }
+#scheduled-form { display: grid; gap: 10px; margin-top: 14px; }
+#scheduled-form[hidden], #scheduled-day-label[hidden] { display: none; }
+#scheduled-form label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+#scheduled-form input, #scheduled-form select, #scheduled-form textarea { width: 100%; min-width: 0; padding: 8px; border: 1px solid #514b57; border-radius: 6px; background: #1b1a1d; color: var(--text); font: inherit; user-select: text; color-scheme: dark; }
+#scheduled-form textarea { resize: vertical; }
+.schedule-row { display: flex; gap: 8px; } .schedule-row label { flex: 1; }
+#scheduled-error { color: #e69494; font-size: 12px; }

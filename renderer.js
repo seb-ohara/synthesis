@@ -1263,7 +1263,7 @@ function syncBrowserBounds() {
   const active = activeWs();
   const overlayOpen = ['#settings-backdrop', '#history-backdrop', '#modal-backdrop']
     .some((sel) => { const el = $(sel); return el && !el.classList.contains('hidden'); })
-    || menuEl.classList.contains('visible') || !projectFilterPanel.hidden || !$('#git-panel').hidden;
+    || menuEl.classList.contains('visible') || !projectFilterPanel.hidden || !$('#git-panel').hidden || $('#git-review-dialog').open || $('#snooze-dialog').open || $('#scheduled-tasks-dialog').open;
   for (const ws of state.workspaces) {
     for (const pane of workspaceTabs(ws)) {
       if (pane.type !== 'browser' || !pane.viewport) continue;
@@ -1599,7 +1599,7 @@ function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body', 'chat-empty');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1610,6 +1610,54 @@ function initChatPane(ws, tab) {
   const composerObserver = new ResizeObserver(() => tab.body.style.setProperty('--composer-height', form.offsetHeight + 'px'));
   composerObserver.observe(form); tab.unsubs.push(() => composerObserver.disconnect());
   const button = form.querySelector('.chat-send');
+  const commandMenu = form.querySelector('.chat-command-menu');
+  const formatMenu = form.querySelector('.chat-format-menu'), formatToggle = form.querySelector('.chat-format-toggle');
+  const builtinCommands = [
+    { name: 'model', description: 'Choose a model', builtin: true },
+    { name: 'thinking', description: 'Choose a reasoning level', builtin: true },
+    { name: 'settings', description: 'Open settings', builtin: true },
+    { name: 'hotkeys', description: 'Show keyboard shortcuts', builtin: true },
+    { name: 'export', description: 'Export this chat as HTML', builtin: true },
+    { name: 'new', description: 'Start a new chat', builtin: true },
+    { name: 'compact', description: 'Compact conversation context', builtin: true },
+    { name: 'name', description: 'Rename this chat', builtin: true, argument: true },
+    { name: 'session', description: 'Show session statistics', builtin: true },
+    { name: 'copy', description: 'Copy the last response', builtin: true },
+  ];
+  let externalCommands = [], visibleCommands = [], commandIndex = 0;
+  function renderCommandMenu() {
+    const match = input.value.match(/^\/([^\s]*)$/); commandMenu.replaceChildren();
+    if (!match) { commandMenu.hidden = true; return; }
+    const query = match[1].toLowerCase();
+    visibleCommands = [...builtinCommands, ...externalCommands.filter(item => !builtinCommands.some(b => b.name === item.name))].filter(item => item.name.toLowerCase().includes(query)).slice(0, 12);
+    commandIndex = Math.min(commandIndex, Math.max(0, visibleCommands.length - 1));
+    for (const [index, item] of visibleCommands.entries()) {
+      const option = document.createElement('button'); option.type = 'button'; option.className = 'chat-command-option'; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(index === commandIndex));
+      const label = document.createElement('span'); label.textContent = '/' + item.name;
+      const description = document.createElement('small'); description.textContent = item.description || ''; option.append(label, description);
+      option.addEventListener('mousedown', event => event.preventDefault());
+      option.addEventListener('click', () => chooseCommand(index)); commandMenu.append(option);
+    }
+    commandMenu.hidden = !visibleCommands.length;
+  }
+  function chooseCommand(index) {
+    const item = visibleCommands[index]; if (!item) return;
+    input.value = '/' + item.name + (item.argument || !item.builtin ? ' ' : ''); commandMenu.hidden = true;
+    input.focus(); resizeInput(); update();
+    if (item.builtin && !item.argument) form.requestSubmit();
+  }
+  const dismissComposerMenus = event => { if (!form.contains(event.target)) { commandMenu.hidden = true; formatMenu.hidden = true; formatToggle.setAttribute('aria-expanded', 'false'); } };
+  document.addEventListener('pointerdown', dismissComposerMenus); tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissComposerMenus));
+  formatToggle.addEventListener('click', () => { formatMenu.hidden = !formatMenu.hidden; formatToggle.setAttribute('aria-expanded', String(!formatMenu.hidden)); });
+  formatMenu.addEventListener('mousedown', event => event.preventDefault());
+  formatMenu.addEventListener('click', event => {
+    const format = event.target.closest('[data-format]')?.dataset.format; if (!format) return;
+    const start = input.selectionStart, end = input.selectionEnd, selected = input.value.slice(start, end), lines = selected || (format === 'bullet' || format === 'number' ? 'List item' : 'text');
+    const replacement = format === 'bold' ? `**${lines}**` : format === 'italic' ? `*${lines}*` : lines.split('\n').map((line, i) => (format === 'bullet' ? '- ' : `${i + 1}. `) + line).join('\n');
+    input.focus(); input.setSelectionRange(start, end);
+    if (!document.execCommand('insertText', false, replacement)) input.setRangeText(replacement, start, end, 'end');
+    formatMenu.hidden = true; formatToggle.setAttribute('aria-expanded', 'false'); input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   form.querySelector('.chat-git').addEventListener('click', event => {
     const trigger = event.currentTarget;
     if (!$('#git-panel').hidden && gitAnchor === trigger) setFsCollapsed(true);
@@ -1861,6 +1909,14 @@ function initChatPane(ws, tab) {
         previewMessages = null;
       }
       else add('error', event.error || 'Could not load this chat.'); update(); renderList();
+    } else if (event.type === 'response' && event.command === 'get_commands') {
+      externalCommands = event.success && Array.isArray(event.data?.commands) ? event.data.commands.filter(item => typeof item.name === 'string' && /^[\w:.-]+$/.test(item.name)) : []; if (!commandMenu.hidden) renderCommandMenu();
+    } else if (event.type === 'response' && event.command === 'compact') {
+      busy = false; statusText.textContent = 'Thinking'; update(); if (!event.success) add('error', event.error || 'Could not compact this chat.'); else { add('assistant', 'Conversation context compacted.'); command('get_messages'); }
+    } else if (event.type === 'response' && event.command === 'export_html') {
+      add(event.success ? 'assistant' : 'error', event.success ? 'Exported chat to `' + (event.data?.path || 'HTML file') + '`.' : (event.error || 'Could not export this chat.'));
+    } else if (event.type === 'response' && event.command === 'get_session_stats') {
+      add(event.success ? 'assistant' : 'error', event.success ? 'Session statistics:\n\n```json\n' + JSON.stringify(event.data, null, 2) + '\n```' : (event.error || 'Could not load session statistics.'));
     } else if (event.type === 'response' && event.command === 'get_available_models') {
       if (event.success) { models = (event.data?.models || []).filter(m => typeof m.provider === 'string' && typeof m.id === 'string'); try { localStorage.setItem(catalogKey, JSON.stringify(models.slice(0, 5000).map(({ provider, id, name }) => ({ provider, id, name })))); } catch {} } updateModelLabel(); if (!modelMenu.hidden) renderModels(); update();
     } else if (event.type === 'response' && event.command === 'get_state' && event.success) {
@@ -1898,10 +1954,32 @@ function initChatPane(ws, tab) {
       window.mux.chat.command(tab.id, response);
     } else if (event.type === 'process_error' || event.type === 'process_exit') { ready = false; busy = false; finishTimer(); add('error', event.error || 'Pi stopped. Close and reopen this chat to try again.'); update(); }
   }
-  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
+  function executeBuiltin(value) {
+    const match = value.match(/^\/(model|thinking|settings|hotkeys|export|new|compact|name|session|copy)(?:\s+([\s\S]*))?$/i);
+    if (!match) {
+      const raw = value.match(/^\/([\w-]+)(?:\s|$)/), unsupported = new Set(['tree', 'scoped-models', 'import', 'share', 'bug', 'changelog', 'fork', 'clone', 'trust', 'login', 'logout', 'resume', 'reload', 'quit']);
+      if (raw && unsupported.has(raw[1].toLowerCase()) && !externalCommands.some(item => item.name === raw[1])) { input.value = ''; commandMenu.hidden = true; resizeInput(); add('error', `Pi’s /${raw[1]} command is not available in Synthesis yet.`); update(); return true; }
+      return false;
+    }
+    const name = match[1].toLowerCase(), argument = (match[2] || '').trim();
+    if (name === 'name' && !argument) { add('error', 'Enter a name after /name.'); return true; }
+    input.value = ''; commandMenu.hidden = true; resizeInput();
+    if (name === 'model') { const wanted = argument.toLowerCase(); const matches = argument ? models.filter(model => `${model.provider}/${model.id}`.toLowerCase() === wanted || model.id.toLowerCase() === wanted) : []; if (matches.length === 1) { changing = true; command('set_model', { provider: matches[0].provider, modelId: matches[0].id }); } else if (!modelSelect.disabled) { if (argument) modelSearch.value = argument; modelSelect.click(); if (argument) { modelSearch.value = argument; renderModels(); } } }
+    else if (name === 'thinking') { if (argument && levels.includes(argument.toLowerCase())) { pendingReasoning = argument.toLowerCase(); changing = true; command('set_thinking_level', { level: pendingReasoning }); } else if (!reasoningSelect.disabled) reasoningSelect.click(); }
+    else if (name === 'settings') openSettings();
+    else if (name === 'hotkeys') openSettings('keyboard');
+    else if (name === 'export') command('export_html', argument ? { outputPath: argument } : {});
+    else if (name === 'new') addPaneTab(tab.owner.ws, tab.owner, { type: 'chat' });
+    else if (name === 'compact') { busy = true; statusText.textContent = 'Compacting'; command('compact', argument ? { customInstructions: argument } : {}); }
+    else if (name === 'name') { setPaneTitle(tab, argument.slice(0, 80)); setChatMeta(tab.sessionPath || tab.id, { title: argument.slice(0, 80) }); command('set_session_name', { name: argument.slice(0, 80) }); }
+    else if (name === 'session') command('get_session_stats');
+    else if (name === 'copy') { const text = [...messages.querySelectorAll('.chat-message.assistant .chat-message-content')].at(-1)?.raw; if (text) navigator.clipboard.writeText(text).catch(() => {}); }
+    update(); return true;
+  }
+  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; if (!attachments.length && !pastedImages.length && executeBuiltin(value)) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified, settled: false, snoozedUntil: 0 }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
   function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
-  input.addEventListener('input', () => { resizeInput(); update(); });
-  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); resizeInput(); update(); });
+  input.addEventListener('keydown', e => { if (!commandMenu.hidden && ['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + visibleCommands.length) % visibleCommands.length; renderCommandMenu(); return; } if (!commandMenu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); commandMenu.hidden = true; return; } if (!commandMenu.hidden && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chooseCommand(commandIndex); return; } if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   update();
   tab.startChat = () => {
     if (tab.disposed || tab.chatStarted) return;
@@ -2031,7 +2109,7 @@ function createPane(ws, opts = {}) {
       }
       restoreParkedTab(row.tab, pane);
     } }
-    else addPaneTab(pane.ws, pane, { type: 'chat', sessionPath: row.session.path, chatCwd: row.ws.cwd, projectId: row.ws.id });
+    else addPaneTab(pane.ws, pane, { type: 'chat', sessionPath: row.session.path, chatCwd: row.session.cwd || row.ws.cwd, projectId: row.ws.id });
     syncBrowserBounds(); renderList();
   });
   renderPaneTabs(pane);
@@ -2286,13 +2364,14 @@ let projectFilter = 'all';
 const CHAT_META_KEY = 'synthesis.chat.sidebar';
 const SCRATCH_KEY = 'synthesis.scratch.projects';
 const OWNED_CHATS_KEY = 'synthesis.chat.ownedSessions';
+const SCHEDULE_DIRS_KEY = 'synthesis.scheduled.projectDirs';
 const localMapCache = new Map();
 function readLocalMap(key) {
   try { const raw = localStorage.getItem(key) || '{}'; const cached = localMapCache.get(key); if (cached?.raw === raw) return cached.value; const value = JSON.parse(raw) || {}; localMapCache.set(key, { raw, value }); return value; } catch { return {}; }
 }
 function rememberConversation(path) { if (!path) return; const owned = readLocalMap(OWNED_CHATS_KEY); if (!owned[path]) { owned[path] = true; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned)); } }
 function chatMeta(key) { return readLocalMap(CHAT_META_KEY)[key] || {}; }
-function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[key] = { ...all[key], ...patch }; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); renderList(); }
+function setChatMeta(key, patch) { const all = readLocalMap(CHAT_META_KEY); all[key] = { ...all[key], ...patch }; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); if ('snoozedUntil' in patch) scheduleSnoozeWake(); renderList(); }
 function moveChatMeta(from, to) { const all = readLocalMap(CHAT_META_KEY); if (all[from]) { all[to] = { ...all[to], ...all[from] }; delete all[from]; localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); } }
 function isScratch(ws) { return !!readLocalMap(SCRATCH_KEY)[ws.id]; }
 function setScratch(ws, value) { const all = readLocalMap(SCRATCH_KEY); if (value) all[ws.id] = true; else delete all[ws.id]; localStorage.setItem(SCRATCH_KEY, JSON.stringify(all)); }
@@ -2308,7 +2387,7 @@ function scheduleChatPreload() {
     let next = 0;
     async function loadNext() {
       while (generation === chatPreloadGeneration && next < recent.length) {
-        const row = recent[next++], cwd = row.tab?.chatCwd || row.ws.cwd, sessionPath = row.tab?.sessionPath || row.session.path;
+        const row = recent[next++], cwd = row.tab?.chatCwd || row.session?.cwd || row.ws.cwd, sessionPath = row.tab?.sessionPath || row.session.path;
         const key = previewKey(cwd, sessionPath), existing = chatPreviewCache.get(key);
         if (existing?.modified === row.modified || chatPreviewPending.has(key)) continue;
         chatPreviewPending.add(key);
@@ -2329,8 +2408,13 @@ function scheduleChatPreload() {
   }, 120);
 }
 async function refreshProjectChats(ws) {
-  const cwd = ws.cwd;
-  try { const sessions = await window.mux.chat.sessions(cwd, Object.keys(readLocalMap(OWNED_CHATS_KEY))); if (state.workspaces.includes(ws) && ws.cwd === cwd) { ws.chatHistory = sessions; renderList(); scheduleChatPreload(); } } catch {}
+  const cwd = ws.cwd, seq = ws.chatRefreshSeq = (ws.chatRefreshSeq || 0) + 1;
+  const directories = [...new Set([cwd, ...(readLocalMap(SCHEDULE_DIRS_KEY)[ws.id] || [])])];
+  try {
+    const owned = Object.keys(readLocalMap(OWNED_CHATS_KEY));
+    const groups = await Promise.all(directories.map(async directory => (await window.mux.chat.sessions(directory, owned)).map(session => ({ ...session, cwd: directory }))));
+    if (state.workspaces.includes(ws) && ws.cwd === cwd && ws.chatRefreshSeq === seq) { ws.chatHistory = [...new Map(groups.flat().map(session => [session.path, session])).values()]; renderList(); scheduleChatPreload(); }
+  } catch {}
 }
 function conversationRows() {
   const rows = [], owned = readLocalMap(OWNED_CHATS_KEY), meta = readLocalMap(CHAT_META_KEY);
@@ -2365,7 +2449,7 @@ function openConversation(row) {
   const target = row.ws.panes[row.ws.activePaneIdx];
   flattenWorkspacePanes(row.ws, target);
   setActive(row.ws.id, { startChats: false });
-  addPaneTab(row.ws, target, { type: 'chat', sessionPath: row.session.path });
+  addPaneTab(row.ws, target, { type: 'chat', sessionPath: row.session.path, chatCwd: row.session.cwd || row.ws.cwd, projectId: row.ws.id });
 }
 function relativeTime(stamp) {
   if (!stamp) return '';
@@ -2376,9 +2460,128 @@ function relativeTime(stamp) {
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
   return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+let scheduleEditing = null, scheduleListCache = [], scheduledRefreshPending = null, schedulesReady = false;
+function formatScheduleTime(stamp) { return stamp ? new Date(stamp).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; }
+async function importScheduledSessions() {
+  let offset = Number(localStorage.getItem('synthesis.scheduled.sessionsOffset')) || 0;
+  let pending = []; try { const saved = JSON.parse(localStorage.getItem('synthesis.scheduled.pendingSessions') || '[]'); if (Array.isArray(saved)) pending = saved; } catch {}
+  for (let batch = 0; batch < 20; batch++) {
+    const result = await window.mux.schedules.discover(offset); if (!result.ok) return;
+    const owned = readLocalMap(OWNED_CHATS_KEY), meta = readLocalMap(CHAT_META_KEY), directories = readLocalMap(SCHEDULE_DIRS_KEY), changedProjects = new Set(); let changed = false, dirsChanged = false;
+    const remaining = [];
+    const entries = [...new Map([...pending, ...result.entries].filter(entry => typeof entry?.sessionPath === 'string').map(entry => [entry.sessionPath, entry])).values()];
+    for (const entry of entries) {
+      const ws = state.workspaces.find(item => item.id === entry.projectId) || state.workspaces.find(item => item.cwd === entry.cwd);
+      if (!ws) { remaining.push(entry); continue; }
+      if (entry.cwd && entry.cwd !== ws.cwd && !(directories[ws.id] || []).includes(entry.cwd)) { directories[ws.id] = [...(directories[ws.id] || []), entry.cwd]; dirsChanged = true; changedProjects.add(ws); }
+      if (owned[entry.sessionPath]) continue;
+      owned[entry.sessionPath] = true; meta[entry.sessionPath] = { ...meta[entry.sessionPath], title: entry.title || 'Scheduled task', modified: entry.finishedAt || entry.startedAt || Date.now() };
+      changedProjects.add(ws); changed = true;
+    }
+    if (dirsChanged) localStorage.setItem(SCHEDULE_DIRS_KEY, JSON.stringify(directories));
+    if (changed) { localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned)); localStorage.setItem(CHAT_META_KEY, JSON.stringify(meta)); }
+    if (changed || dirsChanged) { for (const ws of changedProjects) refreshProjectChats(ws); renderList(); }
+    pending = remaining; localStorage.setItem('synthesis.scheduled.pendingSessions', JSON.stringify(pending));
+    offset = result.offset; localStorage.setItem('synthesis.scheduled.sessionsOffset', String(offset));
+    if (!result.more) break;
+  }
+}
+async function refreshScheduledTasks() {
+  if (!schedulesReady) return;
+  if (scheduledRefreshPending) return scheduledRefreshPending;
+  scheduledRefreshPending = (async () => {
+    await importScheduledSessions();
+    const result = await window.mux.schedules.list();
+    if (!result.ok) { $('#scheduled-error').textContent = result.error || 'Could not load scheduled tasks.'; return; }
+    scheduleListCache = result.tasks;
+    if (!$('#scheduled-tasks-dialog').open) return;
+    $('#scheduled-error').textContent = result.agentError || '';
+    const list = $('#scheduled-list'); list.replaceChildren();
+    if (!result.tasks.length) { const empty = document.createElement('p'); empty.className = 'schedule-hint'; empty.textContent = 'No scheduled tasks yet.'; list.append(empty); }
+    for (const task of result.tasks) {
+      const row = document.createElement('div'); row.className = 'scheduled-task';
+      const title = document.createElement('strong'); title.textContent = task.title;
+      const info = document.createElement('div'); info.className = 'schedule-hint';
+      info.textContent = task.enabled ? `Next: ${formatScheduleTime(task.nextRun)}` : 'Paused';
+      if (task.run?.status === 'running') info.textContent += ' · Running';
+      else if (task.run?.status === 'failed') info.textContent += ' · Last run failed: ' + (task.run.error || 'Unknown error');
+      else if (task.run?.status === 'completed') info.textContent += ' · Last run completed';
+      const controls = document.createElement('div'); controls.className = 'schedule-controls';
+      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit'; edit.addEventListener('click', () => showScheduleForm(task));
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = task.enabled ? 'Pause' : 'Resume'; toggle.addEventListener('click', async () => { const result = await window.mux.schedules.toggle(task.id); if (!result.ok) $('#scheduled-error').textContent = result.error; await refreshScheduledTasks(); });
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Delete'; remove.addEventListener('click', async () => { if (!window.confirm(`Delete the schedule “${task.title}”? Existing chats will remain.`)) return; const result = await window.mux.schedules.remove(task.id); if (!result.ok) $('#scheduled-error').textContent = result.error; await refreshScheduledTasks(); });
+      controls.append(edit, toggle, remove); row.append(title, info, controls); list.append(row);
+    }
+  })().catch(error => { $('#scheduled-error').textContent = error.message || 'Could not load scheduled tasks.'; }).finally(() => { scheduledRefreshPending = null; });
+  return scheduledRefreshPending;
+}
+function showScheduleForm(task = null) {
+  scheduleEditing = task; const form = $('#scheduled-form'); form.hidden = false; $('#scheduled-new').hidden = true; $('#scheduled-error').textContent = '';
+  $('#scheduled-title').value = task?.title || ''; $('#scheduled-prompt').value = task?.prompt || ''; $('#scheduled-time').value = task?.time || '09:00'; $('#scheduled-frequency').value = task?.frequency || 'daily'; $('#scheduled-day').value = String(task?.day ?? 1); $('#scheduled-day-label').hidden = $('#scheduled-frequency').value !== 'weekly';
+  const select = $('#scheduled-project'); select.replaceChildren();
+  const scratch = state.workspaces.find(ws => ws.id === task?.projectId && isScratch(ws)) || (activeWs() && isScratch(activeWs()) ? activeWs() : state.workspaces.find(isScratch));
+  const available = [...(scratch ? [scratch] : []), ...state.workspaces.filter(ws => !isScratch(ws))];
+  for (const ws of available) { const option = document.createElement('option'); option.value = ws.id; option.textContent = isScratch(ws) ? 'No project' : ws.name; select.add(option); }
+  select.value = task?.projectId || activeWs()?.id || ''; $('#scheduled-title').focus();
+}
+$('#scheduled-tasks-btn').addEventListener('click', () => { $('#scheduled-error').textContent = ''; $('#scheduled-form').hidden = true; $('#scheduled-new').hidden = false; $('#scheduled-tasks-dialog').showModal(); syncBrowserBounds(); refreshScheduledTasks(); });
+$('#scheduled-tasks-close').addEventListener('click', () => $('#scheduled-tasks-dialog').close());
+$('#scheduled-tasks-dialog').addEventListener('close', () => syncBrowserBounds());
+$('#scheduled-new').addEventListener('click', () => showScheduleForm());
+$('#scheduled-cancel').addEventListener('click', () => { $('#scheduled-form').hidden = true; $('#scheduled-new').hidden = false; scheduleEditing = null; });
+$('#scheduled-frequency').addEventListener('change', () => { $('#scheduled-day-label').hidden = $('#scheduled-frequency').value !== 'weekly'; });
+$('#scheduled-form').addEventListener('submit', async event => {
+  event.preventDefault(); const button = event.submitter, ws = state.workspaces.find(item => item.id === $('#scheduled-project').value);
+  if (!ws) { $('#scheduled-error').textContent = 'Choose a project.'; return; }
+  const active = activeWs()?.panes[activeWs().activePaneIdx]?.activeTab;
+  const task = { id: scheduleEditing?.id, title: $('#scheduled-title').value, prompt: $('#scheduled-prompt').value, cwd: ws.cwd, projectId: ws.id, frequency: $('#scheduled-frequency').value, day: Number($('#scheduled-day').value), time: $('#scheduled-time').value, model: scheduleEditing?.model || active?.getGitModel?.() || null };
+  button.disabled = true; $('#scheduled-error').textContent = '';
+  try {
+    await window.mux.app.allowRoot(ws.cwd); const result = await window.mux.schedules.save(task);
+    if (!result.ok) { $('#scheduled-error').textContent = result.error || 'Could not save the schedule.'; return; }
+    $('#scheduled-form').hidden = true; $('#scheduled-new').hidden = false; scheduleEditing = null; await refreshScheduledTasks();
+  } catch (error) { $('#scheduled-error').textContent = error.message || 'Could not save the schedule.'; }
+  finally { button.disabled = false; }
+});
+window.addEventListener('focus', () => refreshScheduledTasks());
+const scheduledRefreshTimer = setInterval(() => refreshScheduledTasks(), 30000);
+window.addEventListener('beforeunload', () => clearInterval(scheduledRefreshTimer));
+
+let snoozeTarget = null, snoozeTimer = null;
+function scheduleSnoozeWake() {
+  clearTimeout(snoozeTimer);
+  const all = readLocalMap(CHAT_META_KEY), now = Date.now(); let changed = false, next = Infinity;
+  for (const meta of Object.values(all)) {
+    if (!Number.isFinite(meta?.snoozedUntil) || meta.snoozedUntil <= 0) continue;
+    if (meta.snoozedUntil <= now) { meta.snoozedUntil = 0; changed = true; } else next = Math.min(next, meta.snoozedUntil);
+  }
+  if (changed) { localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); renderList(); }
+  if (Number.isFinite(next)) snoozeTimer = setTimeout(scheduleSnoozeWake, Math.min(2147483647, Math.max(1, next - now)));
+}
+function openSnooze(row) {
+  snoozeTarget = row.key; $('#snooze-error').textContent = ''; $('#snooze-custom').value = '';
+  $('#snooze-dialog').showModal(); syncBrowserBounds();
+}
+function applySnooze(until) {
+  if (!snoozeTarget || !Number.isFinite(until) || until <= Date.now()) { $('#snooze-error').textContent = 'Choose a time in the future.'; return; }
+  const key = snoozeTarget; snoozeTarget = null; $('#snooze-dialog').close(); setChatMeta(key, { snoozedUntil: until, settled: false }); syncBrowserBounds();
+}
+$('#snooze-close').addEventListener('click', () => $('#snooze-dialog').close());
+$('#snooze-dialog').addEventListener('close', () => { snoozeTarget = null; syncBrowserBounds(); });
+$('#snooze-dialog').addEventListener('click', event => {
+  const preset = event.target.closest('[data-snooze]')?.dataset.snooze; if (!preset) return;
+  const date = new Date(); if (preset === 'hour') date.setTime(date.getTime() + 3600000); else { date.setDate(date.getDate() + (preset === 'week' ? 7 : 1)); date.setHours(9, 0, 0, 0); }
+  applySnooze(date.getTime());
+});
+$('#snooze-custom-form').addEventListener('submit', event => { event.preventDefault(); applySnooze(new Date($('#snooze-custom').value).getTime()); });
+window.addEventListener('focus', scheduleSnoozeWake);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleSnoozeWake(); });
+
 function conversationMenu(row, x, y) {
   const meta = chatMeta(row.key);
   const items = [
+    { label: meta.snoozedUntil > Date.now() ? 'Wake chat' : 'Snooze chat…', action: () => meta.snoozedUntil > Date.now() ? setChatMeta(row.key, { snoozedUntil: 0 }) : openSnooze(row) },
+    { label: meta.settled ? 'Return to active chats' : 'Settle chat', disabled: !!row.tab?.isWorking, action: () => setChatMeta(row.key, { settled: !meta.settled }) },
     { label: meta.pinned ? 'Unpin chat' : 'Pin chat', action: () => setChatMeta(row.key, { pinned: !meta.pinned }) },
     { label: meta.archived ? 'Restore chat' : 'Archive chat', action: () => setChatMeta(row.key, { archived: !meta.archived }) },
     'sep',
@@ -2393,7 +2596,7 @@ function conversationMenu(row, x, y) {
       if (!window.confirm(`Move “${row.title}” to the Trash?`)) return;
       const target = row.tab; const sessionPath = target?.sessionPath || row.session?.path;
       if (target?.isWorking) { window.alert('Stop this chat before deleting it.'); return; }
-      if (sessionPath) { const result = await window.mux.chat.remove(target?.chatCwd || row.ws.cwd, sessionPath); if (!result.ok) { window.alert(result.error || 'Could not delete this chat.'); return; } }
+      if (sessionPath) { const result = await window.mux.chat.remove(target?.chatCwd || row.session?.cwd || row.ws.cwd, sessionPath); if (!result.ok) { window.alert(result.error || 'Could not delete this chat.'); return; } }
       if (target?.parked) { const index = target.owner.ws.parkedTabs.indexOf(target); if (index >= 0) target.owner.ws.parkedTabs.splice(index, 1); disposeTab(target); }
       else if (target) { const pane = target.owner; const index = pane.tabs.indexOf(target); if (index >= 0) pane.tabs.splice(index, 1); disposeTab(target); if (!pane.tabs.length) addPaneTab(pane.ws, pane, { type: 'chat' }, false); if (pane.activeTab === target) pane.activeTab = pane.tabs.find(item => item.type !== 'terminal') || pane.tabs[0]; activateTab(pane.ws, pane, pane.activeTab); }
       const owned = readLocalMap(OWNED_CHATS_KEY); delete owned[sessionPath]; localStorage.setItem(OWNED_CHATS_KEY, JSON.stringify(owned));
@@ -2417,6 +2620,22 @@ function renderList() {
     return matchesProject && !!meta.archived === showArchivedChats && `${row.title} ${scratch[row.ws.id] ? 'No project' : row.ws.name} ${row.ws.cwd}`.toLocaleLowerCase().includes(query);
   });
   rows.sort((a, b) => Number(!!metadata[b.key]?.pinned) - Number(!!metadata[a.key]?.pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
+  const main = document.createElement('div'); main.className = 'conversation-section-items'; els.list.append(main);
+  const sections = {};
+  for (const name of ['working', 'settled', 'snoozed']) {
+    const group = document.createElement('section'); group.className = 'conversation-section'; group.dataset.section = name;
+    const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'conversation-section-toggle';
+    const expanded = localStorage.getItem(`synthesis.sidebar.${name}.collapsed`) !== '1';
+    const snoozed = row => (metadata[row.key]?.snoozedUntil || 0) > Date.now();
+    const count = rows.filter(row => name === 'working' ? !snoozed(row) && row.tab?.isWorking : name === 'settled' ? !snoozed(row) && !row.tab?.isWorking && metadata[row.key]?.settled : snoozed(row)).length;
+    toggle.setAttribute('aria-expanded', String(expanded));
+    const title = document.createElement('span'); title.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    const tail = document.createElement('span'); tail.className = 'conversation-section-tail';
+    const total = document.createElement('span'); total.textContent = count; const chevron = document.createElement('span'); chevron.className = 'conversation-section-chevron'; chevron.textContent = expanded ? '⌄' : '›'; tail.append(total, chevron); toggle.append(title, tail);
+    const items = document.createElement('div'); items.className = 'conversation-section-items'; items.hidden = !expanded;
+    toggle.addEventListener('click', () => { localStorage.setItem(`synthesis.sidebar.${name}.collapsed`, expanded ? '1' : '0'); renderList(); });
+    group.append(toggle, items); sections[name] = items; els.list.append(group);
+  }
   for (const row of rows) {
     const { ws, tab } = row; const meta = metadata[row.key] || {}; const isScratchChat = !!scratch[ws.id];
     const card = document.createElement('div'); card.className = 'ws-card chat-card' + (tab && tab.owner.ws.id === state.activeId && tab.owner.ws.panes[tab.owner.ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
@@ -2425,7 +2644,7 @@ function renderList() {
     card.addEventListener('dragend', () => { draggedConversation = null; document.querySelectorAll('.tab-drop-target').forEach(el => el.classList.remove('tab-drop-target')); syncBrowserBounds(); }); card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratchChat ? 'No project' : ws.name}`);
     const heading = document.createElement('div'); heading.className = 'conversation-heading';
     const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratchChat); const projectName = document.createElement('span'); projectName.textContent = isScratchChat ? 'No project' : ws.name; project.append(projectName);
-    const time = document.createElement('span'); time.className = 'conversation-time'; time.dataset.timestamp = String(row.modified || 0); time.textContent = relativeTime(row.modified);
+    const time = document.createElement('span'); time.className = 'conversation-time'; time.dataset.timestamp = String(row.modified || 0); if (meta.snoozedUntil > Date.now()) { time.dataset.snoozedUntil = String(meta.snoozedUntil); time.title = 'Snoozed until ' + new Date(meta.snoozedUntil).toLocaleString(); time.textContent = 'Until ' + new Date(meta.snoozedUntil).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } else time.textContent = relativeTime(row.modified);
     heading.append(project, time);
     const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
     const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
@@ -2433,17 +2652,28 @@ function renderList() {
     const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
     if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
     status.append(indicator);
-    bottom.append(title, status); card.append(heading, bottom);
+    bottom.append(title);
+    {
+      const snooze = document.createElement('button'); snooze.type = 'button'; snooze.className = 'conversation-snooze'; snooze.textContent = meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze';
+      snooze.setAttribute('aria-label', `${meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze'} ${row.title}`);
+      snooze.addEventListener('click', event => { event.stopPropagation(); if (meta.snoozedUntil > Date.now()) setChatMeta(row.key, { snoozedUntil: 0 }); else openSnooze(row); }); bottom.append(snooze);
+    }
+    if (!tab?.isWorking) {
+      const settle = document.createElement('button'); settle.type = 'button'; settle.className = 'conversation-settle'; settle.textContent = meta.settled ? 'Restore' : 'Settle';
+      settle.setAttribute('aria-label', `${meta.settled ? 'Restore' : 'Settle'} ${row.title}`);
+      settle.addEventListener('click', event => { event.stopPropagation(); setChatMeta(row.key, { settled: !meta.settled }); }); bottom.append(settle);
+    }
+    bottom.append(status); card.append(heading, bottom);
     card.addEventListener('click', () => openConversation(row));
     card.addEventListener('keydown', event => { if (event.target !== card) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(row); } });
     card.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); conversationMenu(row, event.clientX, event.clientY); });
-    els.list.append(card);
+    (meta.snoozedUntil > Date.now() ? sections.snoozed : tab?.isWorking ? sections.working : meta.settled ? sections.settled : main).append(card);
   }
-  if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; els.list.append(empty); }
+  if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; main.append(empty); }
   els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;
 }
 
-const relativeTimeTimer = setInterval(() => { document.querySelectorAll('.conversation-time[data-timestamp]').forEach(time => { time.textContent = relativeTime(Number(time.dataset.timestamp)); }); }, 60000);
+const relativeTimeTimer = setInterval(() => { document.querySelectorAll('.conversation-time[data-timestamp]').forEach(time => { if (!time.dataset.snoozedUntil) time.textContent = relativeTime(Number(time.dataset.timestamp)); }); }, 60000);
 window.addEventListener('beforeunload', () => clearInterval(relativeTimeTimer));
 
 function startRename(card, ws) {
@@ -3260,8 +3490,8 @@ async function refreshGitPanel() {
   for (const change of result.changes) {
     const line = document.createElement('div'); line.className = 'git-file';
     const name = document.createElement('span'); name.textContent = change.path; name.title = change.path; line.append(name);
-    if (change.unstaged) { const stage = document.createElement('button'); stage.textContent = 'Stage'; stage.title = 'Stage ' + change.path; stage.addEventListener('click', () => runGitAction('stage', { paths: [change.path] })); line.append(stage); }
-    if (change.staged) { const unstage = document.createElement('button'); unstage.textContent = 'Unstage'; unstage.title = 'Unstage ' + change.path; unstage.addEventListener('click', () => runGitAction('unstage', { paths: [change.path] })); line.append(unstage); }
+    const added = document.createElement('span'); added.className = 'git-file-added'; added.textContent = '+' + (change.added || 0);
+    const deleted = document.createElement('span'); deleted.className = 'git-file-deleted'; deleted.textContent = '−' + (change.deleted || 0); line.append(added, deleted);
     list.append(line);
   }
 }
@@ -3309,10 +3539,16 @@ $('#git-connect-form').addEventListener('submit', async event => {
 });
 $('#git-branches').addEventListener('change', event => runGitAction('switch', { branch: event.target.value }));
 $('#git-new-branch').addEventListener('click', () => { const name = window.prompt('New branch name'); if (name?.trim()) runGitAction('createBranch', { branch: name.trim() }); });
+function positionGitSubmenu(menu, trigger) {
+  const rect = trigger.getBoundingClientRect(), width = menu.offsetWidth || 190, height = menu.offsetHeight || 120;
+  const left = rect.right + width + 6 <= innerWidth - 8 ? rect.right + 6 : Math.max(8, rect.left - width - 6);
+  menu.style.left = `${left}px`; menu.style.top = `${Math.max(8, Math.min(rect.top, innerHeight - height - 8))}px`;
+}
 function setGitActionsOpen(open) {
+  if (open) document.querySelector('.git-branch-group').open = false;
   $('#git-action-options').hidden = !open;
   $('#git-action-toggle').setAttribute('aria-expanded', String(open));
-  requestAnimationFrame(positionGitPanel);
+  if (open) requestAnimationFrame(() => positionGitSubmenu($('#git-action-options'), $('#git-action-toggle')));
 }
 $('#git-action-toggle').addEventListener('click', () => setGitActionsOpen($('#git-action-options').hidden));
 let pendingGitCommit = null, gitCommitChecking = false;
@@ -3342,10 +3578,10 @@ async function requestGitCommit(action) {
     const status = await window.mux.git.status(cwd).catch(error => ({ ok: false, error: error.message }));
     if (activeGitCwd() !== cwd) return;
     if (!status.ok) { $('#git-feedback').textContent = status.error || 'Could not read Git status.'; return; }
-    if (!status.changes.some(change => change.staged)) { $('#git-feedback').textContent = 'No staged changes. Stage files in Changes before committing.'; return; }
+    if (!status.changes.length) { $('#git-feedback').textContent = 'No changes to commit.'; return; }
     if (action === 'commit' || !status.defaultBranch || status.branch !== status.defaultBranch) { await runAutoCommit(cwd, action, model, status.branch); return; }
     pendingGitCommit = { cwd, branch: status.branch, model };
-    $('#git-default-description').textContent = `This will commit and push staged changes on “${status.branch}”. You can continue here or create a feature branch.`;
+    $('#git-default-description').textContent = `This will commit and push changes on “${status.branch}”. You can continue here or create a feature branch.`;
     $('#git-dialog-current').textContent = `Commit and push to ${status.branch}`;
     $('#git-feature-label').hidden = true; $('#git-feature-name').value = ''; $('#git-dialog-error').hidden = true;
     $('#git-feedback').textContent = '';
@@ -3433,13 +3669,19 @@ async function loadGitReview(refreshOptions = false) {
   output.append(fragment);
 }
 $('#git-review-open').addEventListener('click', () => {
-  $('#git-menu-content').hidden = true; $('#git-review').hidden = false; $('#git-panel').classList.add('reviewing');
-  $('#git-review-scope').value = 'working'; updateGitReviewOptions('working'); positionGitPanel(); loadGitReview();
+  setFsCollapsed(true); $('#git-review-scope').value = 'working'; updateGitReviewOptions('working');
+  $('#git-review-dialog').showModal(); syncBrowserBounds(); loadGitReview();
 });
-$('#git-review-close').addEventListener('click', () => { ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); positionGitPanel(); $('#git-review-open').focus(); });
+function closeGitReview() { ++gitReviewSequence; if ($('#git-review-dialog').open) $('#git-review-dialog').close(); syncBrowserBounds(); }
+$('#git-review-close').addEventListener('click', closeGitReview);
+$('#git-review-dialog').addEventListener('close', () => { ++gitReviewSequence; syncBrowserBounds(); });
 $('#git-review-scope').addEventListener('change', () => { const scope = $('#git-review-scope').value; updateGitReviewOptions(scope); loadGitReview(true); });
 $('#git-review-ref').addEventListener('change', () => loadGitReview());
-$('#git-panel').addEventListener('toggle', () => requestAnimationFrame(positionGitPanel), true);
+$('#git-panel').addEventListener('toggle', event => {
+  if (event.target.matches('.git-branch-group') && event.target.open) {
+    setGitActionsOpen(false); requestAnimationFrame(() => positionGitSubmenu(event.target.querySelector('.git-group-content'), event.target.querySelector('summary')));
+  }
+}, true);
 
 /* ---------------- panel collapse ---------------- */
 
@@ -3481,7 +3723,7 @@ function positionGitPanel() {
 function setFsCollapsed(collapsed) {
   els.app.classList.add('fs-collapsed');
   $('#git-panel').hidden = collapsed;
-  if (collapsed) { closeGitConnect(false); setGitActionsOpen(false); ++gitReviewSequence; $('#git-review').hidden = true; $('#git-menu-content').hidden = false; $('#git-panel').classList.remove('reviewing'); document.querySelectorAll('#git-repo details').forEach(group => { group.open = false; }); }
+  if (collapsed) { closeGitConnect(false); setGitActionsOpen(false); ++gitReviewSequence; document.querySelectorAll('#git-repo details').forEach(group => { group.open = false; }); }
   updateFilesToggle();
   if (!collapsed) { positionGitPanel(); refreshGitPanel().then(positionGitPanel); }
   requestBrowserSync();
@@ -4049,7 +4291,7 @@ els.filesBody.addEventListener('contextmenu', (e) => {
 window.addEventListener('keydown', (e) => {
   if (recordingShortcutFor && handleShortcutRecording(e)) return;
   if (e.key === 'Escape') {
-    if ($('#git-default-dialog').open) return;
+    if (['#git-default-dialog', '#git-review-dialog', '#snooze-dialog', '#scheduled-tasks-dialog'].some(selector => $(selector).open)) return;
     if (!$('#git-panel').hidden) { setFsCollapsed(true); gitAnchor?.focus(); return; }
     if (!$('#history-backdrop').classList.contains('hidden')) {
       closeSavedHistory();
@@ -4151,7 +4393,7 @@ window.addEventListener('beforeunload', () => {
   // Reuse an untouched scratch space; otherwise create a new one without changing saved chats.
   let fresh = state.workspaces.find(ws => isScratch(ws) && workspaceTabs(ws).every(tab => tab.type === 'chat' && !tab.hasConversation && !(tab.sessionPath && readLocalMap(OWNED_CHATS_KEY)[tab.sessionPath])));
   if (!fresh) { const cwd = await window.mux.chat.createScratch(); fresh = createWorkspace({ name: 'No project', cwd }); setScratch(fresh, true); }
-  setActive(fresh.id); renderList();
+  setActive(fresh.id); scheduleSnoozeWake(); renderList(); schedulesReady = true; refreshScheduledTasks();
 
   document.fonts.ready.then(() => {
     const cur = activeWs();

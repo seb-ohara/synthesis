@@ -129,7 +129,7 @@ test('commit explains when no files are staged', async t => {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
   fs.writeFileSync(path.join(dir, 'file.txt'), 'not staged\n');
-  await assert.rejects(git.action(dir, 'commit', { message: 'Initial commit' }), /No staged changes.*Stage files/);
+  await assert.rejects(git.action(dir, 'commit', { message: 'Initial commit' }), /No changes are ready to commit/);
   assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }), /\?\? file.txt/);
 });
 
@@ -169,4 +169,17 @@ test('commit message generator passes staged diff and selected model to the agen
   assert.ok(received.args.includes('--no-context-files'));
   assert.deepEqual(received.args.slice(received.args.indexOf('--provider'), received.args.indexOf('--provider') + 4), ['--provider', 'test-provider', '--model', 'test-model']);
   assert.match(received.input, /report\.txt[\s\S]*\+hello/);
+});
+
+test('automatic commit stages new, modified and deleted files while respecting ignores', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-auto-stage-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  run('init', '-b', 'main'); run('config', 'user.name', 'Test'); run('config', 'user.email', 'test@example.invalid');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'ignored.txt\n'); fs.writeFileSync(path.join(dir, 'old.txt'), 'before\n');
+  run('add', '.'); run('commit', '-m', 'Initial');
+  fs.unlinkSync(path.join(dir, 'old.txt')); fs.writeFileSync(path.join(dir, 'new.txt'), 'new\n'); fs.writeFileSync(path.join(dir, 'ignored.txt'), 'ignored\n');
+  await git.autoCommit(dir, 'commit', async changes => { assert.match(changes.summary, /old\.txt/); assert.match(changes.summary, /new\.txt/); return 'Update files'; }, 'main');
+  assert.equal(run('status', '--porcelain'), ''); assert.match(run('show', '--name-status', '--format='), /D\s+old\.txt/);
+  assert.doesNotMatch(run('show', '--name-only', '--format='), /ignored\.txt/);
 });
