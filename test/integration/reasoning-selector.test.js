@@ -30,6 +30,8 @@ test('reasoning slider applies model levels after a drag, supports keys, and res
   await slider.waitFor();
   assert.equal(await slider.getAttribute('aria-valuetext'), 'Low');
   assert.equal(await pane.locator('.chat-reasoning-tick').count(), 3);
+  const alignment = await slider.evaluate(element => { const track = element.querySelector('.chat-reasoning-track').getBoundingClientRect(); const fill = element.querySelector('.chat-reasoning-fill').getBoundingClientRect(); return Math.abs(track.top - fill.top); });
+  assert.ok(alignment < 1, `reasoning fill is ${alignment}px below its track`);
   const box = await slider.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down(); await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2);

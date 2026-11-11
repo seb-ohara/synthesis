@@ -75,13 +75,16 @@ test('Pi commands, formatting and working/settled groups remain usable', async t
   await input.fill('/name A useful title'); await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('.ws-view.active .pane-tab-select').textContent.includes('A useful title'));
   assert.ok((await app.evaluate(() => globalThis.__commands)).some(command => command.type === 'set_session_name' && command.name === 'A useful title'));
+  await page.locator('[data-section="working"] .conversation-section-toggle').click();
   await input.fill('A task'); await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('[data-section="working"] .chat-card'));
-  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'agent_settled', aborted: true } }), id);
+  assert.equal(await page.locator('[data-section="working"] .conversation-section-toggle').getAttribute('aria-expanded'), 'true');
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'agent_settled', aborted: false } }), id);
   await page.waitForFunction(() => !document.querySelector('[data-section="working"] .chat-card'));
+  assert.equal(await page.locator('.chat-card .ws-status.done').innerText(), 'Done');
+  assert.equal(await page.locator('.chat-card .ws-status.done .ws-status-indicator').innerText(), '');
   const card = page.locator('.chat-card').filter({ hasText: 'A useful title' }); await card.hover(); await card.locator('.conversation-settle').click();
   assert.equal(await page.locator('[data-section="settled"] .chat-card').count(), 1);
-  await page.locator('[data-section="settled"] .conversation-section-toggle').click();
   assert.equal(await page.locator('[data-section="settled"] .conversation-section-toggle').getAttribute('aria-expanded'), 'false');
   await page.locator('[data-section="settled"] .conversation-section-toggle').click();
   assert.equal(await page.locator('[data-section="settled"] .chat-card').isVisible(), true);
@@ -99,8 +102,7 @@ test('snoozed chats return at the selected time and section headers show counts'
   await page.locator('#snooze-dialog [data-snooze="hour"]').click();
   assert.equal(await page.locator('[data-section="snoozed"] .chat-card').count(), 1);
   const header = page.locator('[data-section="snoozed"] .conversation-section-toggle');
-  assert.match(await header.innerText(), /Snoozed\s+1/); assert.equal(await header.getAttribute('aria-expanded'), 'true');
-  await header.click(); assert.equal(await header.getAttribute('aria-expanded'), 'false');
+  assert.match(await header.innerText(), /Snoozed\s+1/); assert.equal(await header.getAttribute('aria-expanded'), 'false');
   await header.click();
   await page.evaluate(() => { const row = conversationRows().find(item => item.title.includes('A snoozed conversation')); setChatMeta(row.key, { snoozedUntil: Date.now() + 150 }); });
   await page.waitForFunction(() => !document.querySelector('[data-section="snoozed"] .chat-card'));

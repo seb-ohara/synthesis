@@ -1871,7 +1871,7 @@ function initChatPane(ws, tab) {
   }
   tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
   tab.modified = 0;
-  function update() { renderReasoning(); if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
+  function update() { renderReasoning(); if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { if (busy) localStorage.setItem('synthesis.sidebar.working.collapsed', '0'); lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
   tab.abortChat = () => { if (busy) { command('abort'); setStatusText('Stopping…'); } };
   function add(role, content, images = []) {
     if (!content && !images.length) return null;
@@ -2002,7 +2002,7 @@ function initChatPane(ws, tab) {
         else if (text) { turnHasOutput = true; add('assistant', text); }
       }
     }
-    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted }); busy = false; finishTimer(); setStatusText('Thinking'); command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
+    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) { tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted, modified: tab.modified }); } busy = false; finishTimer(); setStatusText('Thinking'); command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
@@ -2683,13 +2683,14 @@ function renderList() {
   for (const name of ['working', 'settled', 'snoozed']) {
     const group = document.createElement('section'); group.className = 'conversation-section'; group.dataset.section = name;
     const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'conversation-section-toggle';
-    const expanded = localStorage.getItem(`synthesis.sidebar.${name}.collapsed`) !== '1';
+    const collapsed = localStorage.getItem(`synthesis.sidebar.${name}.collapsed`);
+    const expanded = collapsed === null ? name === 'working' : collapsed !== '1';
     const snoozed = row => (metadata[row.key]?.snoozedUntil || 0) > Date.now();
     const count = rows.filter(row => name === 'working' ? !snoozed(row) && row.tab?.isWorking : name === 'settled' ? !snoozed(row) && !row.tab?.isWorking && metadata[row.key]?.settled : snoozed(row)).length;
     toggle.setAttribute('aria-expanded', String(expanded));
     const title = document.createElement('span'); title.textContent = name.charAt(0).toUpperCase() + name.slice(1);
     const tail = document.createElement('span'); tail.className = 'conversation-section-tail';
-    const total = document.createElement('span'); total.textContent = count; const chevron = document.createElement('span'); chevron.className = 'conversation-section-chevron'; chevron.textContent = expanded ? '⌄' : '›'; tail.append(total, chevron); toggle.append(title, tail);
+    const total = document.createElement('span'); total.textContent = count; const chevron = document.createElement('span'); chevron.className = 'conversation-section-chevron'; chevron.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>'; tail.append(total, chevron); toggle.append(title, tail);
     const items = document.createElement('div'); items.className = 'conversation-section-items'; items.hidden = !expanded;
     toggle.addEventListener('click', () => { localStorage.setItem(`synthesis.sidebar.${name}.collapsed`, expanded ? '1' : '0'); renderList(); });
     group.append(toggle, items); sections[name] = items; els.list.append(group);
@@ -2721,7 +2722,6 @@ function renderList() {
     const status = document.createElement('span'); status.className = `ws-status ${tab?.isWorking ? 'working' : meta.done ? 'done' : 'idle'}`; status.setAttribute('aria-label', tab?.isWorking ? 'Working' : meta.done ? 'Done' : 'Idle');
     const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
     if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
-    if (!tab?.isWorking && meta.done) indicator.textContent = '✓';
     status.append(indicator); if (!tab?.isWorking && meta.done) status.append('Done');
     bottom.append(title);
     bottom.append(status); card.append(heading, bottom);
