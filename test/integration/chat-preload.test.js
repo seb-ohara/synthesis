@@ -135,7 +135,7 @@ test('startup prepares more than three chats and shows a cached conversation bef
   assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-model-label').innerText(), 'fast-model');
   assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-label').innerText(), 'High');
   await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-trigger').click();
-  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-option').first().isDisabled(), true);
+  assert.equal(await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-level').first().isDisabled(), true);
   await page.locator('.ws-view.active .chat-body:not(.tab-hidden) .chat-reasoning-trigger').click();
   const id = await page.locator('.ws-view.active .chat-body:not(.tab-hidden)').evaluate(el => el.id.slice('panel-'.length));
   await app.evaluate(({ BrowserWindow }, id) => {

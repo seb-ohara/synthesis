@@ -1722,13 +1722,60 @@ function initChatPane(ws, tab) {
   const reasoningList = form.querySelector('.chat-reasoning-list');
   let levels = Array.isArray(savedSelection.levels) && savedSelection.levels.length ? savedSelection.levels : ['off'], pendingReasoning = null;
   function levelLabel(level) { return level ? level.charAt(0).toUpperCase() + level.slice(1) : 'Off'; }
+  function shortLevelLabel(level) { return ({ minimal: 'Min', medium: 'Med', xhigh: 'X-high', 'extra high': 'X-high' })[level.toLowerCase()] || levelLabel(level); }
+  let reasoningLevelsKey = '', reasoningIndex = 0;
+  function updateReasoningVisual(index) {
+    reasoningIndex = Math.max(0, Math.min(levels.length - 1, index));
+    const level = levels[reasoningIndex], percent = levels.length > 1 ? reasoningIndex / (levels.length - 1) * 100 : 0;
+    const slider = reasoningList.querySelector('.chat-reasoning-slider');
+    if (!slider) return;
+    slider.style.setProperty('--reasoning-position', `${percent}%`);
+    slider.setAttribute('aria-valuenow', String(reasoningIndex));
+    slider.setAttribute('aria-valuetext', levelLabel(level));
+    reasoningList.querySelector('.chat-reasoning-value').textContent = levelLabel(level);
+    reasoningLabel.textContent = levelLabel(level);
+    reasoningList.querySelectorAll('.chat-reasoning-tick').forEach((tick, i) => tick.classList.toggle('selected', i <= reasoningIndex));
+    reasoningList.querySelectorAll('.chat-reasoning-level').forEach((button, i) => { button.classList.toggle('selected', i === reasoningIndex); button.setAttribute('aria-pressed', String(i === reasoningIndex)); });
+  }
+  function commitReasoning(index) {
+    const level = levels[index];
+    if (!level || !ready || busy || changing) return;
+    updateReasoningVisual(index);
+    if (level === currentReasoning) return;
+    pendingReasoning = level; changing = true; update(); command('set_thinking_level', { level });
+  }
   function renderReasoning() {
-    reasoningLabel.textContent = levelLabel(currentReasoning);
-    reasoningList.replaceChildren();
-    for (const level of levels) { const item = document.createElement('button'); item.type = 'button'; item.className = 'chat-reasoning-option'; item.disabled = !ready || busy || changing; item.textContent = levelLabel(level); if (level === currentReasoning) { item.setAttribute('aria-current', 'true'); const check = document.createElement('span'); check.textContent = '✓'; item.append(check); } item.addEventListener('click', () => { closeReasoning(); if (level === currentReasoning) return; pendingReasoning = level; changing = true; update(); command('set_thinking_level', { level }); }); reasoningList.append(item); }
+    const key = JSON.stringify(levels);
+    if (reasoningLevelsKey !== key) {
+      reasoningLevelsKey = key;
+      reasoningList.replaceChildren();
+      const heading = document.createElement('div'); heading.className = 'chat-reasoning-heading';
+      const title = document.createElement('strong'); title.textContent = 'Reasoning';
+      const value = document.createElement('span'); value.className = 'chat-reasoning-value'; heading.append(title, value);
+      const slider = document.createElement('div'); slider.className = 'chat-reasoning-slider'; slider.setAttribute('role', 'slider'); slider.setAttribute('aria-label', 'Reasoning level'); slider.tabIndex = 0;
+      slider.innerHTML = '<div class="chat-reasoning-track"><div class="chat-reasoning-fill"></div></div><div class="chat-reasoning-ticks" aria-hidden="true"></div><div class="chat-reasoning-thumb" aria-hidden="true"></div>';
+      const ticks = slider.querySelector('.chat-reasoning-ticks');
+      const labels = document.createElement('div'); labels.className = 'chat-reasoning-levels';
+      levels.forEach((level, i) => {
+        const tick = document.createElement('span'); tick.className = 'chat-reasoning-tick'; tick.style.left = `${levels.length > 1 ? i / (levels.length - 1) * 100 : 0}%`; ticks.append(tick);
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'chat-reasoning-level'; button.textContent = shortLevelLabel(level); button.setAttribute('aria-label', levelLabel(level)); button.addEventListener('click', () => commitReasoning(i)); labels.append(button);
+      });
+      const indexAt = event => { const rect = slider.getBoundingClientRect(); return rect.width ? Math.round((event.clientX - rect.left) / rect.width * (levels.length - 1)) : 0; };
+      slider.addEventListener('pointerdown', event => { if (!ready || busy || changing || event.button !== 0) return; event.preventDefault(); slider.focus(); slider.setPointerCapture(event.pointerId); updateReasoningVisual(indexAt(event)); });
+      slider.addEventListener('pointermove', event => { if (slider.hasPointerCapture(event.pointerId)) updateReasoningVisual(indexAt(event)); });
+      slider.addEventListener('pointerup', event => { if (!slider.hasPointerCapture(event.pointerId)) return; updateReasoningVisual(indexAt(event)); slider.releasePointerCapture(event.pointerId); commitReasoning(reasoningIndex); });
+      slider.addEventListener('pointercancel', () => updateReasoningVisual(Math.max(0, levels.indexOf(currentReasoning))));
+      slider.addEventListener('keydown', event => { let index = reasoningIndex; if (event.key === 'ArrowRight' || event.key === 'ArrowUp') index++; else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') index--; else if (event.key === 'Home') index = 0; else if (event.key === 'End') index = levels.length - 1; else return; event.preventDefault(); commitReasoning(Math.max(0, Math.min(levels.length - 1, index))); });
+      reasoningList.append(heading, slider, labels);
+    }
+    const slider = reasoningList.querySelector('.chat-reasoning-slider');
+    const disabled = !ready || busy || changing || levels.length < 2;
+    slider.setAttribute('aria-valuemin', '0'); slider.setAttribute('aria-valuemax', String(levels.length - 1)); slider.setAttribute('aria-disabled', String(disabled)); slider.tabIndex = disabled ? -1 : 0;
+    reasoningList.querySelectorAll('.chat-reasoning-level').forEach(button => { button.disabled = disabled; });
+    updateReasoningVisual(Math.max(0, levels.indexOf(pendingReasoning || currentReasoning)));
   }
   function closeReasoning() { reasoningMenu.hidden = true; reasoningSelect.setAttribute('aria-expanded', 'false'); }
-  reasoningSelect.addEventListener('click', () => { if (!reasoningMenu.hidden) { closeReasoning(); return; } closeModelMenu(); renderReasoning(); reasoningMenu.hidden = false; reasoningSelect.setAttribute('aria-expanded', 'true'); reasoningList.querySelector('button')?.focus(); });
+  reasoningSelect.addEventListener('click', () => { if (!reasoningMenu.hidden) { closeReasoning(); return; } closeModelMenu(); renderReasoning(); reasoningMenu.hidden = false; reasoningSelect.setAttribute('aria-expanded', 'true'); reasoningList.querySelector('.chat-reasoning-slider')?.focus(); });
   reasoningMenu.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); closeReasoning(); reasoningSelect.focus(); } });
   const dismissReasoning = event => { if (!form.querySelector('.chat-reasoning-picker').contains(event.target)) closeReasoning(); };
   document.addEventListener('pointerdown', dismissReasoning);
@@ -1814,7 +1861,7 @@ function initChatPane(ws, tab) {
   }
   tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
   tab.modified = 0;
-  function update() { if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
+  function update() { renderReasoning(); if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
   tab.abortChat = () => { if (busy) { command('abort'); statusText.textContent = 'Stopping…'; } };
   function add(role, content, images = []) {
     if (!content && !images.length) return null;

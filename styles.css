@@ -2052,3 +2052,24 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 #scheduled-form textarea { resize: vertical; }
 .schedule-row { display: flex; gap: 8px; } .schedule-row label { flex: 1; }
 #scheduled-error { color: #e69494; font-size: 12px; }
+
+/* Graduated reasoning selector. */
+.chat-reasoning-menu { width: min(320px, calc(100vw - 80px)); }
+.chat-reasoning-list { padding: 14px 15px 12px; }
+.chat-reasoning-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.chat-reasoning-heading strong { color: var(--text); font-weight: 600; }
+.chat-reasoning-value { color: #eeeef0; font-weight: 600; }
+.chat-reasoning-slider { position: relative; height: 28px; margin: 17px 8px 0; cursor: ew-resize; touch-action: none; outline: none; }
+.chat-reasoning-slider[aria-disabled="true"] { cursor: default; opacity: .5; }
+.chat-reasoning-track, .chat-reasoning-fill { position: absolute; top: 12px; left: 0; height: 3px; border-radius: 5px; pointer-events: none; }
+.chat-reasoning-track { right: 0; background: #686871; }
+.chat-reasoning-fill { width: var(--reasoning-position); background: #f0f0f2; transition: width 180ms ease-out; }
+.chat-reasoning-ticks { position: absolute; inset: 0; pointer-events: none; }
+.chat-reasoning-tick { position: absolute; top: 9px; width: 2px; height: 9px; border-radius: 2px; background: #aaaab1; transform: translateX(-50%); }
+.chat-reasoning-tick.selected { background: #f2f2f3; }
+.chat-reasoning-thumb { position: absolute; top: 13.5px; left: var(--reasoning-position); width: 15px; height: 15px; transform: translate(-50%, -50%); border: 3px solid #303035; border-radius: 50%; background: #f4f4f5; box-shadow: 0 0 0 1px #dedee0; pointer-events: none; transition: left 180ms ease-out; }
+.chat-reasoning-levels { display: flex; justify-content: space-between; gap: 4px; margin-top: 5px; }
+.chat-compose-bottom .chat-reasoning-level { width: auto; height: auto; padding: 4px 0; border: 0; border-radius: 2px; background: transparent; color: #9998a1; font: 10px inherit; font-size: 10px; cursor: pointer; }
+.chat-compose-bottom .chat-reasoning-level.selected { color: #f1f1f2; font-weight: 600; }
+.chat-compose-bottom .chat-reasoning-level:focus-visible { outline: 2px solid #f0f0f2; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .chat-reasoning-fill, .chat-reasoning-thumb { transition: none; } }
