@@ -1598,7 +1598,7 @@ function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body', 'chat-empty');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><img class="chat-model-icon" alt="" aria-hidden="true" hidden><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1675,6 +1675,7 @@ function initChatPane(ws, tab) {
   });
   const modelSelect = form.querySelector('.chat-model-trigger');
   const modelLabel = form.querySelector('.chat-model-label');
+  const modelIcon = form.querySelector('.chat-model-icon');
   const modelMenu = form.querySelector('.chat-model-menu');
   const modelSearch = form.querySelector('.chat-model-search');
   const modelList = form.querySelector('.chat-model-list');
@@ -1689,7 +1690,15 @@ function initChatPane(ws, tab) {
   function favorites() { try { const values = JSON.parse(localStorage.getItem(favoriteKey) || '[]'); return new Set(Array.isArray(values) ? values.filter(x => typeof x === 'string') : []); } catch { return new Set(); } }
   function modelKey(model) { return JSON.stringify([model.provider, model.id]); }
   function providerName(value) { return ({ openai: 'OpenAI', openrouter: 'OpenRouter', anthropic: 'Anthropic', google: 'Google', 'github-copilot': 'GitHub Copilot', 'openai-codex': 'OpenAI Codex' })[value] || value; }
-  function updateModelLabel() { const model = models.find(m => modelKey(m) === currentModel) || currentSelection; modelLabel.textContent = model ? (model.name || model.id) : models.length ? 'Choose model' : 'Loading models…'; modelSelect.title = model ? `${model.name || model.id} · ${providerName(model.provider)}` : modelLabel.textContent; }
+  function providerLogo(provider) { return ({ openai: 'openai', 'openai-codex': 'openai', openrouter: 'openrouter' })[provider]; }
+  function updateModelLabel() {
+    const model = models.find(m => modelKey(m) === currentModel) || currentSelection;
+    modelLabel.textContent = model ? (model.name || model.id) : models.length ? 'Choose model' : 'Loading models…';
+    modelSelect.title = model ? `${model.name || model.id} · ${providerName(model.provider)}` : modelLabel.textContent;
+    const logo = providerLogo(model?.provider);
+    modelIcon.hidden = !logo;
+    if (logo) modelIcon.setAttribute('src', `icons/${logo}.svg`); else modelIcon.removeAttribute('src');
+  }
   function closeModelMenu() { modelMenu.hidden = true; modelSelect.setAttribute('aria-expanded', 'false'); }
   function renderModels() {
     modelList.replaceChildren();
@@ -1711,7 +1720,7 @@ function initChatPane(ws, tab) {
         const key = modelKey(model); const row = document.createElement('div'); row.className = 'chat-model-row';
         const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'chat-model-option'; choose.disabled = !ready || busy || changing;
         const name = document.createElement('span'); name.className = 'chat-model-name'; name.textContent = model.name || model.id;
-        const provider = document.createElement('span'); provider.className = 'chat-model-provider'; const providerTitle = providerName(model.provider); provider.title = providerTitle; const logo = ({ openai: 'openai', 'openai-codex': 'openai', openrouter: 'openrouter' })[model.provider]; if (logo) { const icon = document.createElement('img'); icon.src = `icons/${logo}.svg`; icon.alt = providerTitle; provider.append(icon); } else provider.textContent = providerTitle;
+        const provider = document.createElement('span'); provider.className = 'chat-model-provider'; const providerTitle = providerName(model.provider); provider.title = providerTitle; const logo = providerLogo(model.provider); if (logo) { const icon = document.createElement('img'); icon.src = `icons/${logo}.svg`; icon.alt = providerTitle; provider.append(icon); } else provider.textContent = providerTitle;
         choose.append(name, provider); if (key === currentModel) { const check = document.createElement('span'); check.className = 'chat-model-check'; check.textContent = '✓'; choose.append(check); choose.setAttribute('aria-current', 'true'); }
         choose.addEventListener('click', () => { if (key === currentModel) { closeModelMenu(); return; } changing = true; closeModelMenu(); update(); command('set_model', { provider: model.provider, modelId: model.id }); });
         const star = document.createElement('button'); star.type = 'button'; star.className = 'chat-model-star'; star.textContent = saved.has(key) ? '★' : '☆'; star.setAttribute('aria-label', (saved.has(key) ? 'Remove from favourites: ' : 'Add to favourites: ') + (model.name || model.id) + ', ' + providerName(model.provider)); star.setAttribute('aria-pressed', String(saved.has(key)));
@@ -2498,15 +2507,23 @@ function conversationRows() {
   return rows;
 }
 function openConversation(row) {
+  if (readLocalMap(CHAT_META_KEY)[row.key]?.done) setChatMeta(row.key, { done: false });
+  const ws = activeWs(), target = ws.panes[ws.activePaneIdx];
   if (row.tab) {
-    const ownerWs = row.tab.owner.ws, target = row.tab.parked ? ownerWs.panes[ownerWs.activePaneIdx] : row.tab.owner;
-    flattenWorkspacePanes(ownerWs, target);
-    setActive(ownerWs.id, { startChats: false }); if (row.tab.parked) restoreParkedTab(row.tab, target); else activateTab(ownerWs, target, row.tab); return;
+    if (row.tab.owner === target && !row.tab.parked) { activateTab(ws, target, row.tab); return; }
+    if (!row.tab.parked) {
+      const source = row.tab.owner, sourceWs = source.ws;
+      parkTab(row.tab);
+      if (!source.tabs.some(tab => tab.type !== 'terminal')) {
+        const replacement = addPaneTab(sourceWs, source, { type: 'chat' }, false);
+        updatePaneSurfaceChrome(source); renderPaneTabs(source);
+        if (sourceWs.id === state.activeId) replacement?.startChat?.();
+      }
+    }
+    restoreParkedTab(row.tab, target);
+    return;
   }
-  const target = row.ws.panes[row.ws.activePaneIdx];
-  flattenWorkspacePanes(row.ws, target);
-  setActive(row.ws.id, { startChats: false });
-  addPaneTab(row.ws, target, { type: 'chat', sessionPath: row.session.path, chatCwd: row.session.cwd || row.ws.cwd, projectId: row.ws.id });
+  addPaneTab(ws, target, { type: 'chat', sessionPath: row.session.path, chatCwd: row.session.cwd || row.ws.cwd, projectId: row.ws.id });
 }
 function relativeTime(stamp) {
   if (!stamp) return '';
@@ -2615,29 +2632,37 @@ function scheduleSnoozeWake() {
   if (changed) { localStorage.setItem(CHAT_META_KEY, JSON.stringify(all)); renderList(); }
   if (Number.isFinite(next)) snoozeTimer = setTimeout(scheduleSnoozeWake, Math.min(2147483647, Math.max(1, next - now)));
 }
-function openSnooze(row) {
-  snoozeTarget = row.key; $('#snooze-error').textContent = ''; $('#snooze-custom').value = '';
-  $('#snooze-dialog').showModal(); syncBrowserBounds();
+function openSnooze(row, x, y) {
+  const now = new Date();
+  const hour = new Date(now.getTime() + 3600000), threeHours = new Date(now.getTime() + 3 * 3600000);
+  const evening = new Date(now); evening.setHours(18, 0, 0, 0);
+  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);
+  const week = new Date(now); week.setDate(week.getDate() + ((8 - week.getDay()) % 7 || 7)); week.setHours(9, 0, 0, 0);
+  const time = date => date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const preset = (label, date, hint = time(date)) => ({ label, hint, action: () => { snoozeTarget = row.key; applySnooze(date.getTime()); } });
+  showMenu(x, y, [preset('In 1 hour', hour), preset('In 3 hours', threeHours), ...(evening > now ? [preset('This evening', evening)] : []), preset('Tomorrow', tomorrow), preset('Next week', week, week.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + time(week)), 'sep', { label: 'Custom…', action: () => {
+    snoozeTarget = row.key; $('#snooze-error').textContent = '';
+    const initial = new Date(Date.now() + 3600000);
+    $('#snooze-date').value = [initial.getFullYear(), String(initial.getMonth() + 1).padStart(2, '0'), String(initial.getDate()).padStart(2, '0')].join('-');
+    $('#snooze-time').value = [String(initial.getHours()).padStart(2, '0'), String(initial.getMinutes()).padStart(2, '0')].join(':');
+    $('#snooze-dialog').showModal(); syncBrowserBounds();
+  } }]);
 }
 function applySnooze(until) {
   if (!snoozeTarget || !Number.isFinite(until) || until <= Date.now()) { $('#snooze-error').textContent = 'Choose a time in the future.'; return; }
-  const key = snoozeTarget; snoozeTarget = null; $('#snooze-dialog').close(); setChatMeta(key, { snoozedUntil: until, settled: false }); syncBrowserBounds();
+  const key = snoozeTarget; snoozeTarget = null; if ($('#snooze-dialog').open) $('#snooze-dialog').close(); setChatMeta(key, { snoozedUntil: until, settled: false }); syncBrowserBounds();
 }
 $('#snooze-close').addEventListener('click', () => $('#snooze-dialog').close());
+$('#snooze-cancel').addEventListener('click', () => $('#snooze-dialog').close());
 $('#snooze-dialog').addEventListener('close', () => { snoozeTarget = null; syncBrowserBounds(); });
-$('#snooze-dialog').addEventListener('click', event => {
-  const preset = event.target.closest('[data-snooze]')?.dataset.snooze; if (!preset) return;
-  const date = new Date(); if (preset === 'hour') date.setTime(date.getTime() + 3600000); else { date.setDate(date.getDate() + (preset === 'week' ? 7 : 1)); date.setHours(9, 0, 0, 0); }
-  applySnooze(date.getTime());
-});
-$('#snooze-custom-form').addEventListener('submit', event => { event.preventDefault(); applySnooze(new Date($('#snooze-custom').value).getTime()); });
+$('#snooze-custom-form').addEventListener('submit', event => { event.preventDefault(); applySnooze(new Date($('#snooze-date').value + 'T' + $('#snooze-time').value).getTime()); });
 window.addEventListener('focus', scheduleSnoozeWake);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleSnoozeWake(); });
 
 function conversationMenu(row, x, y) {
   const meta = chatMeta(row.key);
   const items = [
-    { label: meta.snoozedUntil > Date.now() ? 'Wake chat' : 'Snooze chat…', action: () => meta.snoozedUntil > Date.now() ? setChatMeta(row.key, { snoozedUntil: 0 }) : openSnooze(row) },
+    { label: meta.snoozedUntil > Date.now() ? 'Wake chat' : 'Snooze chat…', action: () => meta.snoozedUntil > Date.now() ? setChatMeta(row.key, { snoozedUntil: 0 }) : openSnooze(row, x, y) },
     { label: meta.settled ? 'Return to active chats' : 'Settle chat', disabled: !!row.tab?.isWorking, action: () => setChatMeta(row.key, { settled: !meta.settled }) },
     { label: meta.pinned ? 'Unpin chat' : 'Pin chat', action: () => setChatMeta(row.key, { pinned: !meta.pinned }) },
     { label: meta.archived ? 'Restore chat' : 'Archive chat', action: () => setChatMeta(row.key, { archived: !meta.archived }) },
@@ -2668,7 +2693,7 @@ function conversationProjectIcon(scratch = false) {
 }
 
 function renderList() {
-  const previousCards = new Map([...els.list.querySelectorAll('.chat-card[data-key]')].map(card => [card.dataset.key, { section: card.dataset.section, rect: card.getBoundingClientRect() }]));
+  const previousCards = new Map([...els.list.querySelectorAll('.chat-card[data-key]')].map(card => [card.dataset.key, { section: card.dataset.section, rect: card.getBoundingClientRect(), anchor: card.closest('.conversation-section')?.querySelector('.conversation-section-toggle')?.getBoundingClientRect(), clone: card.cloneNode(true) }]));
   els.list.replaceChildren();
   const query = $('#workspace-search').value.trim().toLocaleLowerCase();
   const metadata = readLocalMap(CHAT_META_KEY), scratch = readLocalMap(SCRATCH_KEY);
@@ -2715,7 +2740,7 @@ function renderList() {
     snooze.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></svg>';
     snooze.title = meta.snoozedUntil > Date.now() ? 'Wake this thread' : 'Snooze this thread until later';
     snooze.setAttribute('aria-label', `${meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze'} ${row.title}`);
-    snooze.addEventListener('click', event => { event.stopPropagation(); if (meta.snoozedUntil > Date.now()) setChatMeta(row.key, { snoozedUntil: 0 }); else openSnooze(row); }); actions.prepend(snooze);
+    snooze.addEventListener('click', event => { event.stopPropagation(); if (meta.snoozedUntil > Date.now()) setChatMeta(row.key, { snoozedUntil: 0 }); else { const rect = snooze.getBoundingClientRect(); openSnooze(row, rect.left, rect.bottom + 4); } }); actions.prepend(snooze);
     const headingEnd = document.createElement('span'); headingEnd.className = 'conversation-heading-end'; headingEnd.append(time, actions); heading.append(project, headingEnd);
     const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
     const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
@@ -2732,9 +2757,16 @@ function renderList() {
   }
   if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) for (const card of els.list.querySelectorAll('.chat-card[data-key]')) {
     const previous = previousCards.get(card.dataset.key);
-    if (!previous || previous.section === card.dataset.section || !card.getClientRects().length || !previous.rect.width) continue;
-    const offset = previous.rect.top - card.getBoundingClientRect().top;
-    if (offset) card.animate([{ transform: `translateY(${offset}px)`, opacity: 0.75 }, { transform: 'translateY(0)', opacity: 1 }], { duration: 220, easing: 'ease-out' });
+    if (!previous || previous.section === card.dataset.section) continue;
+    const current = card.getBoundingClientRect();
+    const destination = current.width ? current : card.closest('.conversation-section')?.querySelector('.conversation-section-toggle')?.getBoundingClientRect();
+    const origin = previous.rect.width ? previous.rect : previous.anchor;
+    if (!origin?.width || !destination?.width) continue;
+    const ghost = previous.clone; ghost.classList.remove('chat-card'); ghost.classList.add('conversation-transition'); delete ghost.dataset.section; delete ghost.dataset.key; ghost.setAttribute('aria-hidden', 'true'); ghost.inert = true;
+    Object.assign(ghost.style, { left: `${origin.left}px`, top: `${origin.top}px`, width: `${previous.rect.width || current.width || origin.width}px` });
+    $('#sidebar').append(ghost);
+    const animation = ghost.animate([{ transform: 'translateY(0)', opacity: previous.rect.width ? 1 : 0 }, { transform: `translateY(${destination.top - origin.top}px)`, opacity: current.width ? 1 : 0 }], { duration: 320, easing: 'ease-in-out' });
+    animation.finished.then(() => ghost.remove(), () => ghost.remove());
   }
   if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; main.append(empty); }
   els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;

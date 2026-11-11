@@ -1957,9 +1957,10 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .chat-body .chat-composer { bottom: 24px; transform: translate(-50%, 0); transition: transform 350ms cubic-bezier(.22, 1, .36, 1); z-index: 3; }
 .chat-body .chat-attachments { bottom: calc(var(--composer-height) + 32px); transform: translate(-50%, 0); transition: transform 350ms cubic-bezier(.22, 1, .36, 1); z-index: 3; }
 .chat-body.chat-empty .chat-composer, .chat-body.chat-empty .chat-attachments { transform: translate(-50%, calc(-50cqh + var(--composer-height) / 2 + 24px)); }
-.chat-body.chat-empty .chat-welcome { position: absolute; left: 20px; right: 20px; top: calc(50% - 185px); padding: 0; }
+.chat-body.chat-empty .chat-welcome { position: absolute; left: 20px; right: 20px; bottom: calc(50% + var(--composer-height) / 2 + 16px); padding: 0; }
 .chat-body.chat-empty .chat-symbol { display: none; }
-.chat-body.chat-empty .chat-welcome h2 { margin-top: 0; }
+.chat-body.chat-empty .chat-welcome h2 { margin: 0 0 16px; }
+.chat-body.chat-empty .chat-welcome p { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .chat-body .chat-composer, .chat-body .chat-attachments { transition: none; } }
 .chat-body.chat-empty .chat-composer { transform: translate(-50%, calc(-50cqh + 50% + 24px)); }
 #git-repo > .git-group > summary { box-sizing: border-box; width: calc(100% - 10px); height: 34px; min-height: 34px; margin: 0 5px; }
@@ -2026,20 +2027,13 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .conversation-section-chevron { display: flex; align-items: center; justify-content: center; width: 12px; height: 16px; }
 .conversation-section-chevron svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .conversation-section-toggle[aria-expanded="false"] .conversation-section-chevron svg { transform: rotate(-90deg); }
-#snooze-dialog { width: min(320px, calc(100vw - 32px)); padding: 16px; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
-#snooze-dialog::backdrop { background: #0009; }
+.conversation-transition { position: fixed !important; z-index: 1000; padding: 10px 11px; background: color-mix(in srgb, var(--sidebar-background, #101011), white 4%); pointer-events: none; }
 .schedule-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .schedule-dialog-header h2 { margin: 0; font-size: 15px; }
 .schedule-dialog-header > button { border: 0; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; }
-.snooze-options { display: flex; flex-direction: column; gap: 3px; margin: 12px 0; }
-.snooze-options button, #snooze-custom-form button { padding: 8px; border: 0; border-radius: 6px; background: #ffffff0a; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.snooze-options button:hover, #snooze-custom-form button:hover { background: #ffffff18; }
-#snooze-custom-form { display: grid; gap: 8px; font-size: 12px; }
-#snooze-custom { width: 100%; padding: 8px; border: 1px solid #514b57; border-radius: 6px; background: #1b1a1d; color: var(--text); font: inherit; color-scheme: dark; }
-#snooze-error { color: #e69494; }
 .scheduled-tasks-trigger { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; }
 .scheduled-tasks-trigger svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-#scheduled-tasks-dialog { width: min(540px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px)); padding: 18px; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
+#scheduled-tasks-dialog { position: fixed; inset: 0; margin: auto; width: min(540px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 32px)); padding: 18px; border: 1px solid #46424c; border-radius: 12px; background: #242327; color: var(--text); }
 #scheduled-tasks-dialog::backdrop { background: #0009; }
 .schedule-hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
 #scheduled-list { display: flex; flex-direction: column; gap: 7px; }
@@ -2077,3 +2071,20 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .chat-compose-bottom .chat-reasoning-level.selected { color: #f1f1f2; font-weight: 600; }
 .chat-compose-bottom .chat-reasoning-level:focus-visible { outline: 2px solid #f0f0f2; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .chat-reasoning-fill, .chat-reasoning-thumb { transition: none; } }
+
+/* Snooze dialog and preset menu. */
+#snooze-dialog { position: fixed; inset: 0; margin: auto; width: min(420px, calc(100vw - 32px)); padding: 24px; border: 1px solid #343438; border-radius: 16px; background: #111316; color: var(--text); box-shadow: 0 18px 50px #0008; }
+#snooze-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+#snooze-dialog .schedule-dialog-header h2 { font-size: 20px; }
+.snooze-hint { margin: 8px 0 20px; color: var(--muted); font-size: 13px; }
+.snooze-fields { display: flex; gap: 12px; }
+.snooze-fields label { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.snooze-fields input { min-width: 0; width: 100%; padding: 9px; border: 1px solid #292a2c; border-radius: 8px; background: #18191b; color: var(--text); font: inherit; color-scheme: dark; }
+#snooze-error { color: #e69494; margin-top: 8px; }
+.snooze-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.snooze-actions button { padding: 8px 13px; border: 1px solid #303035; border-radius: 8px; background: #191a1c; color: var(--text); font: inherit; cursor: pointer; }
+.snooze-actions button[type="submit"] { background: #3469ee; border-color: #3469ee; color: white; }
+
+.chat-model-trigger .chat-model-icon { display: block; flex: none; width: 14px; height: 14px; object-fit: contain; filter: invert(.85); }
+.chat-model-trigger .chat-model-icon[src="icons/openrouter.svg"] { filter: none; }
+.chat-model-trigger .chat-model-icon[hidden] { display: none; }

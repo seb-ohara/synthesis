@@ -7,7 +7,7 @@ const path = require('node:path');
 const { _electron } = require('playwright');
 const ROOT = path.resolve(__dirname, '../..');
 
-test('sidebar chat opens a single pane and saved state omits split layout', async t => {
+test('sidebar chat opens in the active pane and saved state omits split layout', async t => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-layout-test-'));
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData };
   delete env.ELECTRON_RUN_AS_NODE;
@@ -31,16 +31,24 @@ test('sidebar chat opens a single pane and saved state omits split layout', asyn
   assert.equal(snapshot.panes.length, 1);
   assert.equal(snapshot.panes[0].tabs.length, 2);
   assert.equal(snapshot.layout.paneId, snapshot.panes[0].id);
+  const activePaneId = await page.evaluate(() => activeWs().panes[activeWs().activePaneIdx].id);
   await page.locator('.chat-card').first().click();
-  assert.equal(await page.locator('.ws-view.active .tile').count(), 1);
-  const geometry = await page.evaluate(() => ({ pane: document.querySelector('.ws-view.active .tile').getBoundingClientRect().width, center: document.querySelector('#center').getBoundingClientRect().width }));
-  assert.ok(Math.abs(geometry.pane - geometry.center) < 2, `pane ${geometry.pane} should fill center ${geometry.center}`);
-  assert.equal(await page.locator('.ws-view.active .pane-tab').count(), 1);
-  assert.match(await page.locator('.ws-view.active .chat-message.assistant').innerText(), /A response/);
-  const singleChat = await page.evaluate(() => { const ws = activeWs(), pane = ws.panes[0], original = pane.activeTab; original.isWorking = true; addPaneTab(ws, pane, { type: 'chat' }); const retained = ws.parkedTabs.includes(original) && original.isWorking; restoreParkedTab(original, pane); return { retained, visible: pane.tabs.filter(tab => tab.type !== 'terminal').length, active: pane.activeTab === original }; });
+  assert.equal(await page.locator('.ws-view.active .tile').count(), 2);
+  const result = await page.evaluate(({ activePaneId, id }) => {
+    const ws = activeWs(), active = ws.panes[ws.activePaneIdx];
+    return { activePane: active.id, tab: active.activeTab.id, otherHasChat: ws.panes.find(pane => pane !== active).activeTab?.type };
+  }, { activePaneId, id });
+  assert.deepEqual(result, { activePane: activePaneId, tab: id, otherHasChat: 'chat' });
+  assert.match(await page.locator('.ws-view.active .tile.active .chat-message.assistant').innerText(), /A response/);
+  const singleChat = await page.evaluate(() => { const ws = activeWs(), pane = ws.panes[ws.activePaneIdx], original = pane.activeTab; original.isWorking = true; addPaneTab(ws, pane, { type: 'chat' }); const retained = ws.parkedTabs.includes(original) && original.isWorking; restoreParkedTab(original, pane); return { retained, visible: pane.tabs.filter(tab => tab.type !== 'terminal').length, active: pane.activeTab === original }; });
   assert.deepEqual(singleChat, { retained: true, visible: 1, active: true });
-  await page.locator('.ws-view.active .pane-btn[data-action="splitRight"]').click();
-  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .tile').length === 2);
+  const parkedCheck = await page.evaluate(() => {
+    const ws = activeWs(), target = ws.panes[ws.activePaneIdx], other = ws.panes.find(pane => pane !== target), original = target.activeTab;
+    const otherTab = other.activeTab; addPaneTab(ws, target, { type: 'chat' });
+    openConversation(conversationRows().find(row => row.tab === original));
+    return { count: ws.panes.length, active: target.activeTab === original, otherUnchanged: other.activeTab === otherTab };
+  });
+  assert.deepEqual(parkedCheck, { count: 2, active: true, otherUnchanged: true });
   await app.close(); app = null;
   app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
   page = await app.firstWindow();
@@ -147,4 +155,33 @@ test('browser panes can hold multiple tabs without mixing them with chats', asyn
     return { browsers, chats: pane.tabs.filter(tab => tab.type !== 'terminal').map(tab => tab.type) };
   });
   assert.deepEqual(types, { browsers: ['browser', 'browser'], chats: ['chat'] });
+});
+
+
+test('snooze menu is usable and the empty chat has even spacing', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-snooze-layout-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  const gaps = await page.evaluate(() => {
+    const body = document.querySelector('.ws-view.active .chat-body');
+    const heading = body.querySelector('.chat-welcome h2').getBoundingClientRect();
+    const text = body.querySelector('.chat-welcome p').getBoundingClientRect();
+    const composer = body.querySelector('.chat-composer').getBoundingClientRect();
+    return [text.top - heading.bottom, composer.top - text.bottom];
+  });
+  assert.ok(Math.abs(gaps[0] - gaps[1]) < 2, `Welcome gaps: ${gaps}`);
+  await page.evaluate(() => { const ws = activeWs(); const tab = ws.panes[0].activeTab; tab.hasConversation = true; renderList(); });
+  await page.locator('.chat-card').first().hover();
+  await page.locator('.conversation-snooze').first().click();
+  await page.locator('#ctx-menu .ctx-item', { hasText: 'Custom…' }).click();
+  const dialog = page.locator('#snooze-dialog'); await dialog.waitFor({ state: 'visible' });
+  const position = await dialog.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight }; });
+  assert.ok(Math.abs(position.x - position.width / 2) < 2 && Math.abs(position.y - position.height / 2) < 2);
+  await page.locator('#snooze-cancel').click(); assert.equal(await dialog.isVisible(), false);
+  await page.locator('.chat-card').first().hover();
+  await page.locator('.conversation-snooze').first().click();
+  await page.locator('#ctx-menu .ctx-item', { hasText: 'In 1 hour' }).click();
+  assert.equal(await page.locator('.conversation-section[data-section="snoozed"] .chat-card').count(), 1);
 });

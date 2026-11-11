@@ -50,3 +50,21 @@ test('reasoning slider applies model levels after a drag, supports keys, and res
   assert.equal(await pane.locator('.chat-reasoning-label').innerText(), 'High');
   await page.keyboard.press('Escape'); assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
 });
+
+
+test('selected model shows the matching provider logo', async t => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-model-icon-'));
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
+  const page = await app.firstWindow();
+  const pane = page.locator('.ws-view.active .chat-body:not(.tab-hidden)').first(); await pane.waitFor();
+  const id = await pane.evaluate(el => el.id.slice('panel-'.length));
+  const icon = pane.locator('.chat-model-icon');
+  for (const [provider, expected] of [['openrouter', 'icons/openrouter.svg'], ['openai', 'icons/openai.svg'], ['openai-codex', 'icons/openai.svg'], ['other', null]]) {
+    await app.evaluate(({ BrowserWindow }, { id, provider }) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'response', command: 'get_state', success: true, data: { model: { provider, id: 'test-model' } } } }), { id, provider });
+    await page.waitForFunction(provider => document.querySelector('.ws-view.active .chat-model-trigger')?.title.includes(provider === 'openai-codex' ? 'OpenAI Codex' : provider === 'openai' ? 'OpenAI' : provider === 'openrouter' ? 'OpenRouter' : provider), provider);
+    assert.equal(await icon.getAttribute('src'), expected);
+    assert.equal(await icon.isVisible(), expected !== null);
+  }
+});

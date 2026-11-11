@@ -104,9 +104,13 @@
   </dialog>
 
   <dialog id="snooze-dialog" aria-labelledby="snooze-title">
-    <div class="schedule-dialog-header"><h2 id="snooze-title">Snooze chat</h2><button type="button" id="snooze-close" aria-label="Close">×</button></div>
-    <div class="snooze-options"><button type="button" data-snooze="hour">In one hour</button><button type="button" data-snooze="tomorrow">Tomorrow at 9:00</button><button type="button" data-snooze="week">Next week at 9:00</button></div>
-    <form id="snooze-custom-form"><label for="snooze-custom">Choose a date and time</label><input id="snooze-custom" type="datetime-local" required><div id="snooze-error" role="alert"></div><button type="submit">Snooze until then</button></form>
+    <div class="schedule-dialog-header"><h2 id="snooze-title">Custom snooze</h2><button type="button" id="snooze-close" aria-label="Close">×</button></div>
+    <p class="snooze-hint">Choose when snoozed threads return to your inbox.</p>
+    <form id="snooze-custom-form">
+      <div class="snooze-fields"><label>Date<input id="snooze-date" type="date" required></label><label>Time<input id="snooze-time" type="time" required></label></div>
+      <div id="snooze-error" role="alert"></div>
+      <div class="snooze-actions"><button type="button" id="snooze-cancel">Cancel</button><button type="submit">Snooze</button></div>
+    </form>
   </dialog>
 
   <dialog id="git-review-dialog" aria-label="Review changes">

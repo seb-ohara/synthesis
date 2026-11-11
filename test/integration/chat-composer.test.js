@@ -56,6 +56,8 @@ test('Pi commands, formatting and working/settled groups remain usable', async t
   t.after(async () => { await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
   const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
   await page.waitForFunction(() => !document.querySelector('.ws-view.active .chat-model-trigger').disabled, null, { timeout: 30000 });
+  const chevronOffset = await page.locator('[data-section="working"] .conversation-section-toggle').evaluate(element => { const button = element.getBoundingClientRect(); const chevron = element.querySelector('svg').getBoundingClientRect(); return Math.abs(button.top + button.height / 2 - chevron.top - chevron.height / 2); });
+  assert.ok(chevronOffset < 1, `section chevron is off-center by ${chevronOffset}px`);
   const pane = page.locator('.ws-view.active .chat-body:not(.tab-hidden)');
   const id = await pane.evaluate(el => el.id.slice('panel-'.length));
   await app.evaluate(({ ipcMain }) => { ipcMain.removeAllListeners('chat:command'); globalThis.__commands = []; ipcMain.on('chat:command', (_event, payload) => globalThis.__commands.push(payload.message)); });
@@ -79,12 +81,17 @@ test('Pi commands, formatting and working/settled groups remain usable', async t
   await input.fill('A task'); await input.press('Enter');
   await page.waitForFunction(() => document.querySelector('[data-section="working"] .chat-card'));
   assert.equal(await page.locator('[data-section="working"] .conversation-section-toggle').getAttribute('aria-expanded'), 'true');
+  assert.ok(await page.locator('.conversation-transition').count());
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'agent_settled', aborted: false } }), id);
   await page.waitForFunction(() => !document.querySelector('[data-section="working"] .chat-card'));
   assert.equal(await page.locator('.chat-card .ws-status.done').innerText(), 'Done');
   assert.equal(await page.locator('.chat-card .ws-status.done .ws-status-indicator').innerText(), '');
+  assert.equal(await page.locator('.chat-card .ws-status.done').evaluate(element => getComputedStyle(element).color), 'rgb(131, 168, 118)');
+  await page.locator('.chat-card').filter({ hasText: 'A useful title' }).click();
+  assert.equal(await page.locator('.chat-card .ws-status.done').count(), 0);
   const card = page.locator('.chat-card').filter({ hasText: 'A useful title' }); await card.hover(); await card.locator('.conversation-settle').click();
   assert.equal(await page.locator('[data-section="settled"] .chat-card').count(), 1);
+  assert.ok(await page.locator('.conversation-transition').count());
   assert.equal(await page.locator('[data-section="settled"] .conversation-section-toggle').getAttribute('aria-expanded'), 'false');
   await page.locator('[data-section="settled"] .conversation-section-toggle').click();
   assert.equal(await page.locator('[data-section="settled"] .chat-card').isVisible(), true);
@@ -101,6 +108,7 @@ test('snoozed chats return at the selected time and section headers show counts'
   const card = page.locator('.chat-card').filter({ hasText: 'A snoozed conversation' }); await card.waitFor(); await card.hover(); await card.locator('.conversation-snooze').click();
   await page.locator('#snooze-dialog [data-snooze="hour"]').click();
   assert.equal(await page.locator('[data-section="snoozed"] .chat-card').count(), 1);
+  assert.ok(await page.locator('.conversation-transition').count());
   const header = page.locator('[data-section="snoozed"] .conversation-section-toggle');
   assert.match(await header.innerText(), /Snoozed\s+1/); assert.equal(await header.getAttribute('aria-expanded'), 'false');
   await header.click();

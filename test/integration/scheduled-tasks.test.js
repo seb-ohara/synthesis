@@ -21,6 +21,11 @@ test('a scheduled task can run with the app closed and appears as a chat on reop
   let page = await app.firstWindow(); const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.waitForSelector('.ws-view.active .chat-body');
   await page.evaluate(cwd => { const ws = createWorkspace({ name: 'Scheduled project', cwd }); setActive(ws.id); }, project);
+  await page.locator('#scheduled-tasks-btn').click();
+  const dialogPosition = await page.locator('#scheduled-tasks-dialog').evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: innerWidth, height: innerHeight }; });
+  assert.ok(Math.abs(dialogPosition.x - dialogPosition.width / 2) < 2 && Math.abs(dialogPosition.y - dialogPosition.height / 2) < 2);
+  await page.locator('#scheduled-tasks-close').click();
+  assert.equal(await page.locator('#scheduled-tasks-dialog').isVisible(), false);
   await page.locator('#scheduled-tasks-btn').click(); await page.locator('#scheduled-new').click();
   await page.locator('#scheduled-title').fill('Scheduled report'); await page.locator('#scheduled-prompt').fill('Prepare the report');
   await page.locator('#scheduled-time').fill('09:00'); await page.locator('#scheduled-form button[type="submit"]').click();
