@@ -14,10 +14,7 @@ The chat interface uses the [Pi coding agent](https://github.com/badlogic/pi-mon
 - **Organise conversations:** search and filter threads by project, keep track of working and settled chats, and snooze threads for later.
 - **Keep tools together:** split the workspace into panes and use terminal and browser tabs alongside a conversation. Browse project files and open read-only previews.
 - **Work with Git:** inspect changes and diffs, stage files, commit, and manage repository connections from the workspace.
-- **Schedule recurring tasks:** set up a daily, weekday, or weekly prompt for a project. On macOS, scheduled runs can start while Synthesis is closed and appear as chats when you return.
 - **Make it yours:** adjust appearance and keyboard shortcuts in Settings.
-
-![Synthesis scheduled task editor showing a weekly project review](docs/screenshots/scheduled-tasks.png)
 
 ## Getting started
 
@@ -44,7 +41,7 @@ npm_config_build_from_source=true npm rebuild node-pty
 npm run package
 ```
 
-The packaging script creates an ad-hoc signed Apple Silicon bundle at `dist/Synthesis-darwin-arm64/Synthesis.app`. Background scheduled tasks currently require macOS and a system Node.js installation.
+The packaging script creates an ad-hoc signed Apple Silicon bundle at `dist/Synthesis-darwin-arm64/Synthesis.app`.
 
 ## Development
 

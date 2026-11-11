@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthesis — Flat Logo Variations</title>
+<style>
+  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #111216; color: #eeeef2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main { max-width: 1320px; margin: auto; padding: 72px 36px 90px; }
+  header { display: flex; justify-content: space-between; align-items: end; gap: 24px; border-bottom: 1px solid #34353d; padding-bottom: 30px; margin-bottom: 34px; }
+  .eyebrow { margin: 0 0 16px; color: #aaa9b8; font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
+  h1 { margin: 0; font-size: clamp(32px, 5vw, 58px); letter-spacing: -.055em; font-weight: 550; line-height: 1; }
+  header p:last-child { color: #aaa9b8; font-size: 14px; line-height: 1.6; max-width: 300px; margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 20px; }
+  article { min-width: 0; }
+  .stage { aspect-ratio: 1 / 1; display: grid; place-items: center; border-radius: 8px; background: #1a1b21; border: 1px solid #292a32; }
+  .icon { display: block; width: 64%; max-width: 260px; height: auto; }
+  .meta { display: flex; justify-content: space-between; gap: 20px; padding: 17px 2px 0; }
+  h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .description { margin: 0; color: #92939f; font-size: 13px; line-height: 1.5; }
+  .number { color: #777985; font-size: 12px; font-variant-numeric: tabular-nums; }
+  footer { margin-top: 55px; padding-top: 22px; border-top: 1px solid #34353d; color: #777985; font-size: 12px; letter-spacing: .02em; }
+  @media (max-width: 760px) { main { padding: 44px 20px 60px; } header { display: block; } header p:last-child { margin-top: 20px; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 460px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><p class="eyebrow">Synthesis / identity explorations</p><h1>A flatter perspective.</h1></div>
+    <p>Five subtle takes on the familiar bookmark and orbit, simplified for a cleaner silhouette.</p>
+  </header>
+  <section class="grid" aria-label="Five Synthesis logo variations">
+    <article>
+      <div class="stage"><svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Classic white orbit logo on black">
+        <rect width="256" height="256" rx="58" fill="#000000"/>
+        <path d="M77 180V75c0-13 10-23 23-23h56c13 0 23 10 23 23v105c0 7-8 11-13 7l-38-31-38 31c-5 4-13 0-13-7Z" fill="none" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+        <ellipse cx="128" cy="129" rx="105" ry="45" transform="rotate(-32 128 129)" fill="none" stroke="#ffffff" stroke-width="5"/>
+      </svg></div>
+      <div class="meta"><div><h2>Classic</h2><p class="description">The original idea, in crisp monochrome.</p></div><span class="number">01</span></div>
+    </article>
+    <article>
+      <div class="stage"><svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Single colour continuous orbit logo">
+        <rect width="256" height="256" rx="58" fill="#000000"/>
+        <path d="M78 180V76c0-14 10-24 24-24h52c14 0 24 10 24 24v104c0 7-8 11-13 7l-37-30-37 30c-5 4-13 0-13-7Z" fill="none" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+        <ellipse cx="128" cy="129" rx="105" ry="44" transform="rotate(-32 128 129)" fill="none" stroke="#ffffff" stroke-width="4"/>
+      </svg></div>
+      <div class="meta"><div><h2>Mono</h2><p class="description">A restrained, finer-line expression.</p></div><span class="number">02</span></div>
+    </article>
+    <article>
+      <div class="stage"><svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Solid white bookmark and orbit logo on black">
+        <rect width="256" height="256" rx="58" fill="#000000"/>
+        <path d="M77 77c0-14 11-25 25-25h52c14 0 25 11 25 25v103c0 8-9 12-15 7l-36-29-36 29c-6 5-15 1-15-7Z" fill="#ffffff"/>
+        <ellipse cx="128" cy="129" rx="105" ry="44" transform="rotate(-32 128 129)" fill="none" stroke="#000000" stroke-width="10"/>
+        <ellipse cx="128" cy="129" rx="105" ry="44" transform="rotate(-32 128 129)" fill="none" stroke="#ffffff" stroke-width="5"/>
+      </svg></div>
+      <div class="meta"><div><h2>Solid</h2><p class="description">A fuller mark with a crisp orbital cut.</p></div><span class="number">03</span></div>
+    </article>
+    <article>
+      <div class="stage"><svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Fine bookmark and open orbit logo">
+        <rect width="256" height="256" rx="58" fill="#000000"/>
+        <path d="M79 180V76c0-13 10-23 23-23h52c13 0 23 10 23 23v104c0 6-7 9-12 5l-37-30-37 30c-5 4-12 1-12-5Z" fill="none" stroke="#ffffff" stroke-width="10" stroke-linejoin="round"/>
+        <path d="M70 105C32 137 17 171 31 190c18 26 79 15 137-21s95-85 79-109c-14-21-56-19-101-1" transform="translate(-10 0)" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="136" cy="59" r="5" fill="#ffffff"/>
+      </svg></div>
+      <div class="meta"><div><h2>Open orbit</h2><p class="description">A lighter line and a small orbital accent.</p></div><span class="number">04</span></div>
+    </article>
+    <article>
+      <div class="stage"><svg class="icon" viewBox="0 0 256 256" role="img" aria-label="White bookmark and orbit logo on black">
+        <rect width="256" height="256" rx="58" fill="#000000"/>
+        <path d="M77 180V75c0-13 10-23 23-23h56c13 0 23 10 23 23v105c0 7-8 11-13 7l-38-31-38 31c-5 4-13 0-13-7Z" fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round"/>
+        <ellipse cx="128" cy="129" rx="105" ry="45" transform="rotate(-32 128 129)" fill="none" stroke="#ffffff" stroke-width="7"/>
+      </svg></div>
+      <div class="meta"><div><h2>Bold</h2><p class="description">A stronger mark with a heavier orbit.</p></div><span class="number">05</span></div>
+    </article>
+  </section>
+  <footer>SYNTHESIS &nbsp; / &nbsp; LOGO STUDIES</footer>
+</main>
+</body>
+</html>

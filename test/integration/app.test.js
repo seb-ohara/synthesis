@@ -937,7 +937,7 @@ test('closing a pane and reopening the application window preserve other live se
   assert.deepEqual(errors, [], 'pane close and window reopening do not produce renderer errors');
 });
 
-test('pane-only close controls, smooth collapse, focus borders and logo accent', async (t) => {
+test('pane-only close controls, smooth collapse, neutral focus borders and logo accent', async (t) => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-pane-polish-'));
   const server = http.createServer((_req, res) => res.end('<title>Focus Test</title><input autofocus>'));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -966,13 +966,12 @@ test('pane-only close controls, smooth collapse, focus borders and logo accent',
   const gradient = await page.evaluate(() => ({
     setting: JSON.parse(localStorage.getItem('synthesis.settings')).accentColor,
     fill: getComputedStyle(document.documentElement).getPropertyValue('--accent-fill'),
-    border: getComputedStyle(document.querySelector('.tile.active')).borderImageSource,
+    border: getComputedStyle(document.querySelector('.tile.active')).borderLeftColor,
     borderWidth: getComputedStyle(document.querySelector('.tile.active')).borderLeftWidth,
   }));
   assert.equal(gradient.setting, 'synthesis');
   assert.equal(gradient.fill.trim(), 'linear-gradient(110deg, #d9cbff 0%, #b8eaff 54%, #c4ffe1 100%)', 'accent fills keep the original full-strength gradient');
-  assert.match(gradient.border, /linear-gradient/);
-  assert.match(gradient.border, /rgba\(217, 203, 255, 0\.7\d*\)/, 'only the active outline uses softer 70% opacity');
+  assert.equal(gradient.border, 'rgb(98, 98, 98)', 'the active outline remains neutral with a gradient accent');
   assert.equal(gradient.borderWidth, '1px', 'native browser content cannot cover the reserved border');
   await page.waitForTimeout(150);
   const borderRect = await page.$eval('.tile.active', (tile) => {
@@ -984,7 +983,7 @@ test('pane-only close controls, smooth collapse, focus borders and logo accent',
     const image = await BrowserWindow.getAllWindows()[0].capturePage(rect);
     return [...image.toBitmap()];
   }, borderRect);
-  assert.ok(borderPixels.some((value, index) => index % 4 !== 3 && value > 80), 'the accent border is actually painted above the pane background');
+  assert.ok(borderPixels.some((value, index) => index % 4 !== 3 && value > 80), 'the neutral border is actually painted above the pane background');
 
   // Confirm animation geometry halfway through a row, column and nested close.
   await page.evaluate(() => updateAppSettings({ confirmClose: false }));
@@ -1040,12 +1039,12 @@ test('pane-only close controls, smooth collapse, focus borders and logo accent',
   });
   await page.waitForFunction((id) => document.querySelector('.tile.active')?.dataset.paneId === id, browserPane);
   await page.waitForTimeout(150);
-  const borders = await page.$$eval('.tile', (tiles) => tiles.map((tile) => getComputedStyle(tile).borderImageSource));
-  assert.equal(borders.filter((source) => source !== 'none').length, 1, 'only the active pane is highlighted');
+  const borders = await page.$$eval('.tile', (tiles) => tiles.map((tile) => getComputedStyle(tile).borderLeftColor));
+  assert.equal(borders.filter((color) => color === 'rgb(98, 98, 98)').length, 1, 'only the active pane is highlighted');
   await app.close();
   app = await launch(userData);
   page = await app.firstWindow();
   await page.waitForSelector('.tile.active');
   assert.equal(await page.evaluate(() => appSettings.accentColor), 'synthesis', 'gradient persists after relaunch');
-  assert.match(await page.$eval('.tile.active', (el) => getComputedStyle(el).borderImageSource), /linear-gradient/);
+  assert.equal(await page.$eval('.tile.active', (el) => getComputedStyle(el).borderLeftColor), 'rgb(98, 98, 98)');
 });

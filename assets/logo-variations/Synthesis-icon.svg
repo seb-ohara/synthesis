@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Synthesis">
+  <svg x="8" y="8" width="144" height="144" viewBox="10 12 138 140" preserveAspectRatio="none">
+    <rect x="10" y="12" width="138" height="140" rx="30" fill="#000"/>
+    <path fill="#fff" d="M104 43 C78 39 62 42 54 52 C48 59 48 69 52 76 C58 87 76 92 96 98 C101 99 104 101 104 103 C104 107 99 108 92 107 C76 107 62 103 49 99 L49 127 C63 127 75 129 85 128 C101 126 108 118 108 105 C108 87 102 78 91 77 C79 75 69 79 61 79 C56 79 54 78 55 74 C56 69 62 65 68 63 C81 59 95 62 104 70 Z"/>
+  </svg>
+</svg>

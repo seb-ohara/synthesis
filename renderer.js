@@ -89,13 +89,16 @@ const TERM_THEME = {
 
 const DEFAULT_SHORTCUTS = {
   settings: 'Meta+Comma',
-  newSession: 'Meta+Shift+T',
+  newSession: 'Meta+Shift+N',
+  newChat: 'Meta+N',
+  searchChats: 'Meta+Shift+F',
+  toggleSidebar: 'Meta+Shift+S',
   closeSession: 'Meta+Shift+W',
   newTab: 'Meta+T',
   closeTab: 'Meta+W',
   nextTab: 'Ctrl+Tab',
   previousTab: 'Ctrl+Shift+Tab',
-  openFiles: 'Meta+O',
+  openFiles: 'Meta+Shift+G',
   splitRight: 'Meta+D',
   splitDown: 'Meta+Shift+D',
   browserRight: 'Meta+B',
@@ -107,8 +110,6 @@ const DEFAULT_SHORTCUTS = {
 };
 const SYNTHESIS_ACCENT = '#b8eaff';
 const SYNTHESIS_GRADIENT = 'linear-gradient(110deg, #d9cbff 0%, #b8eaff 54%, #c4ffe1 100%)';
-// Only the pane outline is softened; the accent preset and fills stay full strength.
-const SYNTHESIS_BORDER_GRADIENT = 'linear-gradient(110deg, #d9cbff86 0%, #b8eaff86 54%, #c4ffe186 100%)';
 function accentColor() { return appSettings.accentColor === 'synthesis' ? SYNTHESIS_ACCENT : appSettings.accentColor; }
 
 const BUILT_IN_THEMES = {
@@ -137,6 +138,9 @@ const DEFAULT_SETTINGS = {
 };
 const KEYBINDING_ACTIONS = [
   { id: 'settings', label: 'Open settings' },
+  { id: 'newChat', label: 'New chat' },
+  { id: 'searchChats', label: 'Search chats' },
+  { id: 'toggleSidebar', label: 'Toggle sidebar' },
   { id: 'newTab', label: 'New tab in this pane' },
   { id: 'closeTab', label: 'Close current tab' },
   { id: 'nextTab', label: 'Next tab' },
@@ -201,11 +205,22 @@ function loadSettings() {
     if (saved.shortcuts.newSession === 'Meta+T') saved.shortcuts.newSession = 'Meta+Shift+T';
     if (saved.shortcuts.closeSession === 'Meta+W') saved.shortcuts.closeSession = 'Meta+Shift+W';
   }
+  // Update untouched former defaults while retaining explicitly customized bindings.
+  for (const [id, oldValue] of Object.entries({ newSession: 'Meta+Shift+T', openFiles: 'Meta+O' })) {
+    if (saved.shortcuts?.[id] === oldValue && !Object.entries(saved.shortcuts).some(([other, value]) => other !== id && value === DEFAULT_SHORTCUTS[id])) saved.shortcuts[id] = DEFAULT_SHORTCUTS[id];
+  }
   const shortcuts = { ...DEFAULT_SHORTCUTS };
   for (const [id, value] of Object.entries(saved.shortcuts || {})) {
     if (Object.prototype.hasOwnProperty.call(DEFAULT_SHORTCUTS, id)) {
       const normalized = normalizeShortcut(value);
       if (normalized) shortcuts[id] = normalized;
+    }
+  }
+  // New actions must not shadow an existing custom binding.
+  for (const [id, fallback] of Object.entries({ newChat: 'Meta+Alt+N', searchChats: 'Meta+Alt+F', toggleSidebar: 'Meta+Alt+S' })) {
+    if (!saved.shortcuts?.[id] && Object.entries(saved.shortcuts || {}).some(([other, value]) => other !== id && normalizeShortcut(value) === shortcuts[id])) {
+      const used = new Set(Object.entries(shortcuts).filter(([other]) => other !== id).map(([, value]) => normalizeShortcut(value)));
+      shortcuts[id] = [fallback, `Ctrl+Alt+${fallback.slice(-1)}`, `Meta+Ctrl+Alt+${fallback.slice(-1)}`].find(value => !used.has(value)) || fallback;
     }
   }
   const accentColor = saved.accentColor === 'synthesis' || /^#[0-9a-f]{6}$/i.test(saved.accentColor || '')
@@ -257,7 +272,10 @@ function updateShortcutTooltips() {
     if (element) element.dataset.tip = `${label} (${formatShortcut(appSettings.shortcuts[action])})`;
   };
   setTip('#settings-btn', 'Settings', 'settings');
-  setTip('#add-btn', 'New workspace/session', 'newSession');
+  setTip('#add-btn', 'New project', 'newSession');
+  setTip('#workspace-new-chat', 'New chat', 'newChat');
+  setTip('#ws-collapse', 'Hide workspaces', 'toggleSidebar');
+  setTip('#ws-expand', 'Show workspaces', 'toggleSidebar');
   setTip('#fs-pick', 'Open file or folder picker', 'openFiles');
   updateFilesToggle();
   const paneTips = {
@@ -272,6 +290,12 @@ function updateShortcutTooltips() {
     const tip = paneTips[button.dataset.action];
     if (tip) button.dataset.tip = tip(button);
   });
+}
+
+function activePaneBorderColor(background) {
+  const rgb = [1, 3, 5].map(offset => parseInt(background.slice(offset, offset + 2), 16));
+  const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+  return brightness >= 160 ? '#a8a8a8' : '#626262';
 }
 
 function terminalTheme() {
@@ -289,7 +313,7 @@ function applySettings() {
   document.documentElement.style.setProperty('--accent', accentColor());
   document.documentElement.style.setProperty('--accent-dim', darkenHex(accentColor()));
   document.documentElement.style.setProperty('--accent-fill', appSettings.accentColor === 'synthesis' ? SYNTHESIS_GRADIENT : accentColor());
-  document.documentElement.style.setProperty('--accent-border', appSettings.accentColor === 'synthesis' ? SYNTHESIS_BORDER_GRADIENT : `linear-gradient(${accentColor()}, ${accentColor()})`);
+  document.documentElement.style.setProperty('--active-pane-border', activePaneBorderColor(appSettings.chatBackground));
   for (const ws of state.workspaces) {
     for (const pane of workspaceTabs(ws)) {
       if (!pane.term) continue;
@@ -4222,8 +4246,15 @@ function runShortcutAction(actionId) {
       break;
     case 'settings': openSettings(); break;
     case 'newSession': openModal(); break;
+    case 'newChat': setWsCollapsed(false); $('#workspace-new-chat').click(); break;
+    case 'searchChats': setWsCollapsed(false); $('#workspace-search').focus(); $('#workspace-search').select(); break;
+    case 'toggleSidebar': setWsCollapsed(!els.app.classList.contains('ws-collapsed')); break;
     case 'closeSession': if (state.activeId) closeWorkspace(state.activeId); break;
-    case 'openFiles': setFsCollapsed(!$('#git-panel').hidden); break;
+    case 'openFiles': {
+      if (!$('#git-panel').hidden) setFsCollapsed(true);
+      else ws?.panes[ws.activePaneIdx]?.activeTab?.body?.querySelector('.chat-git')?.click();
+      break;
+    }
     case 'splitRight':
       if (ws) splitPane(ws, ws.panes[ws.activePaneIdx], 'row');
       break;
