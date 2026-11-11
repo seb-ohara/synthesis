@@ -1945,7 +1945,7 @@ function initChatPane(ws, tab) {
         else if (text) { turnHasOutput = true; add('assistant', text); }
       }
     }
-    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
+    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted }); busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
@@ -1976,7 +1976,7 @@ function initChatPane(ws, tab) {
     else if (name === 'copy') { const text = [...messages.querySelectorAll('.chat-message.assistant .chat-message-content')].at(-1)?.raw; if (text) navigator.clipboard.writeText(text).catch(() => {}); }
     update(); return true;
   }
-  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; if (!attachments.length && !pastedImages.length && executeBuiltin(value)) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified, settled: false, snoozedUntil: 0 }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
+  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; if (!attachments.length && !pastedImages.length && executeBuiltin(value)) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified, settled: false, snoozedUntil: 0, done: false }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
   function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
   input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); resizeInput(); update(); });
   input.addEventListener('keydown', e => { if (!commandMenu.hidden && ['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + visibleCommands.length) % visibleCommands.length; renderCommandMenu(); return; } if (!commandMenu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); commandMenu.hidden = true; return; } if (!commandMenu.hidden && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chooseCommand(commandIndex); return; } if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
@@ -2611,6 +2611,7 @@ function conversationProjectIcon(scratch = false) {
 }
 
 function renderList() {
+  const previousCards = new Map([...els.list.querySelectorAll('.chat-card[data-key]')].map(card => [card.dataset.key, { section: card.dataset.section, rect: card.getBoundingClientRect() }]));
   els.list.replaceChildren();
   const query = $('#workspace-search').value.trim().toLocaleLowerCase();
   const metadata = readLocalMap(CHAT_META_KEY), scratch = readLocalMap(SCRATCH_KEY);
@@ -2639,35 +2640,44 @@ function renderList() {
   for (const row of rows) {
     const { ws, tab } = row; const meta = metadata[row.key] || {}; const isScratchChat = !!scratch[ws.id];
     const card = document.createElement('div'); card.className = 'ws-card chat-card' + (tab && tab.owner.ws.id === state.activeId && tab.owner.ws.panes[tab.owner.ws.activePaneIdx]?.activeTab === tab ? ' active' : '');
-    card.dataset.id = ws.id; card.tabIndex = 0; card.draggable = true;
+    card.dataset.id = ws.id; card.dataset.key = row.key; card.dataset.section = meta.snoozedUntil > Date.now() ? 'snoozed' : tab?.isWorking ? 'working' : meta.settled ? 'settled' : 'main'; card.tabIndex = 0; card.draggable = true;
     card.addEventListener('dragstart', event => { draggedConversation = row; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-synthesis-chat', row.key); syncBrowserBounds(); });
     card.addEventListener('dragend', () => { draggedConversation = null; document.querySelectorAll('.tab-drop-target').forEach(el => el.classList.remove('tab-drop-target')); syncBrowserBounds(); }); card.setAttribute('role', 'button'); card.setAttribute('aria-label', `${row.title}, ${isScratchChat ? 'No project' : ws.name}`);
     const heading = document.createElement('div'); heading.className = 'conversation-heading';
     const project = document.createElement('span'); project.className = 'conversation-project'; project.innerHTML = conversationProjectIcon(isScratchChat); const projectName = document.createElement('span'); projectName.textContent = isScratchChat ? 'No project' : ws.name; project.append(projectName);
     const time = document.createElement('span'); time.className = 'conversation-time'; time.dataset.timestamp = String(row.modified || 0); if (meta.snoozedUntil > Date.now()) { time.dataset.snoozedUntil = String(meta.snoozedUntil); time.title = 'Snoozed until ' + new Date(meta.snoozedUntil).toLocaleString(); time.textContent = 'Until ' + new Date(meta.snoozedUntil).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } else time.textContent = relativeTime(row.modified);
-    heading.append(project, time);
-    const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
-    const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
-    const status = document.createElement('span'); status.className = `ws-status ${tab?.isWorking ? 'working' : 'idle'}`; status.setAttribute('aria-label', tab?.isWorking ? 'Working' : 'Idle');
-    const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
-    if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
-    status.append(indicator);
-    bottom.append(title);
-    {
-      const snooze = document.createElement('button'); snooze.type = 'button'; snooze.className = 'conversation-snooze'; snooze.textContent = meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze';
-      snooze.setAttribute('aria-label', `${meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze'} ${row.title}`);
-      snooze.addEventListener('click', event => { event.stopPropagation(); if (meta.snoozedUntil > Date.now()) setChatMeta(row.key, { snoozedUntil: 0 }); else openSnooze(row); }); bottom.append(snooze);
-    }
+    const actions = document.createElement('span'); actions.className = 'conversation-actions';
     if (!tab?.isWorking) {
       const settle = document.createElement('button'); settle.type = 'button'; settle.className = 'conversation-settle'; settle.textContent = meta.settled ? 'Restore' : 'Settle';
+      settle.title = meta.settled ? 'Return this thread to active chats' : 'Move this thread to Settled';
       settle.setAttribute('aria-label', `${meta.settled ? 'Restore' : 'Settle'} ${row.title}`);
-      settle.addEventListener('click', event => { event.stopPropagation(); setChatMeta(row.key, { settled: !meta.settled }); }); bottom.append(settle);
+      settle.addEventListener('click', event => { event.stopPropagation(); setChatMeta(row.key, { settled: !meta.settled }); }); actions.append(settle);
     }
+    const snooze = document.createElement('button'); snooze.type = 'button'; snooze.className = 'conversation-snooze';
+    snooze.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></svg>';
+    snooze.title = meta.snoozedUntil > Date.now() ? 'Wake this thread' : 'Snooze this thread until later';
+    snooze.setAttribute('aria-label', `${meta.snoozedUntil > Date.now() ? 'Wake' : 'Snooze'} ${row.title}`);
+    snooze.addEventListener('click', event => { event.stopPropagation(); if (meta.snoozedUntil > Date.now()) setChatMeta(row.key, { snoozedUntil: 0 }); else openSnooze(row); }); actions.prepend(snooze);
+    const headingEnd = document.createElement('span'); headingEnd.className = 'conversation-heading-end'; headingEnd.append(time, actions); heading.append(project, headingEnd);
+    const bottom = document.createElement('div'); bottom.className = 'conversation-bottom';
+    const title = document.createElement('span'); title.className = 'conversation-title'; title.textContent = (meta.pinned ? '⌖  ' : '') + row.title;
+    const status = document.createElement('span'); status.className = `ws-status ${tab?.isWorking ? 'working' : meta.done ? 'done' : 'idle'}`; status.setAttribute('aria-label', tab?.isWorking ? 'Working' : meta.done ? 'Done' : 'Idle');
+    const indicator = document.createElement('span'); indicator.className = 'ws-status-indicator'; indicator.setAttribute('aria-hidden', 'true');
+    if (tab?.isWorking) for (const order of [2,3,4,1,null,5,0,7,6]) { const dot = document.createElement('span'); dot.className = 'ws-status-dot'; if (order !== null) dot.dataset.order = String(order); indicator.append(dot); }
+    if (!tab?.isWorking && meta.done) indicator.textContent = '✓';
+    status.append(indicator); if (!tab?.isWorking && meta.done) status.append('Done');
+    bottom.append(title);
     bottom.append(status); card.append(heading, bottom);
     card.addEventListener('click', () => openConversation(row));
     card.addEventListener('keydown', event => { if (event.target !== card) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openConversation(row); } });
     card.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); conversationMenu(row, event.clientX, event.clientY); });
     (meta.snoozedUntil > Date.now() ? sections.snoozed : tab?.isWorking ? sections.working : meta.settled ? sections.settled : main).append(card);
+  }
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) for (const card of els.list.querySelectorAll('.chat-card[data-key]')) {
+    const previous = previousCards.get(card.dataset.key);
+    if (!previous || previous.section === card.dataset.section || !card.getClientRects().length || !previous.rect.width) continue;
+    const offset = previous.rect.top - card.getBoundingClientRect().top;
+    if (offset) card.animate([{ transform: `translateY(${offset}px)`, opacity: 0.75 }, { transform: 'translateY(0)', opacity: 1 }], { duration: 220, easing: 'ease-out' });
   }
   if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; main.append(empty); }
   els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;
