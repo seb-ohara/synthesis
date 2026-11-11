@@ -1,53 +1,58 @@
 # Synthesis
 
-Consolidated source and data snapshot for the Synthesis Electron app.
+Synthesis is a desktop workspace for working with an AI coding agent alongside the tools and project files it needs. It brings conversations, a terminal, a browser, file previews, and Git controls into one place, so you can explore a project, make changes, and follow the work without constantly switching apps.
 
-## Contents
+The chat interface uses the [Pi coding agent](https://github.com/badlogic/pi-mono) and its configured models. Projects give conversations a working directory, while the sidebar makes it easier to return to ongoing work, settle finished threads, or snooze a conversation until later.
 
-- App source: `main.js`, `preload.js`, `pty-daemon.js`, `renderer.js`, `index.html`, and `styles.css`
-- Shared libraries (`lib/`): versioned workspace state schema + atomic store (`state-schema.js`, `state-store.js`), filesystem path guard (`path-guard.js`), terminal pane status machine (`pane-status.js`), in-pane browser manager + URL policy (`browser-views.js`, `browser-url.js`)
-- Tests (`test/unit/`, `test/integration/`): `npm test` runs the unit suite; `npm run test:integration` runs the Electron integration suite against disposable user-data directories
-- Node project metadata: `package.json` and `package-lock.json`
-- Branding: `assets/logo-variations/`
-- UI/design explorations: `design-explorations/`
-- User workspace and terminal-history snapshot: `data/app-support/`
-- Implementation specification: `SYNTHESIS_IMPLEMENTATION_SPEC.md`
+![Synthesis showing a project conversation and model picker](docs/screenshots/chat.png)
 
-The app-support snapshot was copied from `~/Library/Application Support/Synthesis` (currently an alias to the existing `Pmux` support directory). It contains `workspaces.json` and terminal session logs. The original data remains untouched. Electron caches, transient socket/lock files, and other regenerable runtime state were not copied. Tests never use this snapshot — they run against temporary `SYNTHESIS_USER_DATA` directories.
+*An example conversation in a project workspace. The screenshots on this page use demonstration content.*
 
-## Run from this folder
+## What you can do
 
-Install dependencies with `npm ci`, then launch with `npm start`.
+- **Work with an agent:** chat about a project, attach files and folders, select an available model, and adjust its reasoning level when supported.
+- **Organise conversations:** search and filter threads by project, keep track of working and settled chats, and snooze threads for later.
+- **Keep tools together:** split the workspace into panes and use terminal and browser tabs alongside a conversation. Browse project files and open read-only previews.
+- **Work with Git:** inspect changes and diffs, stage files, commit, and manage repository connections from the workspace.
+- **Schedule recurring tasks:** set up a daily, weekday, or weekly prompt for a project. On macOS, scheduled runs can start while Synthesis is closed and appear as chats when you return.
+- **Make it yours:** adjust appearance and keyboard shortcuts in Settings.
 
-Note: node-pty's bundled darwin prebuild can be broken under newer Node
-versions (symptom: `posix_spawnp failed`). `postinstall` detects this and
-rebuilds node-pty from source automatically; to force it, run
-`npm_config_build_from_source=true npm rebuild node-pty`.
+![Synthesis scheduled task editor showing a weekly project review](docs/screenshots/scheduled-tasks.png)
 
-`node_modules` and the installed `/Applications/Synthesis.app` bundle are not included; dependencies can be recreated from the lockfile. The originals in the home directory and the installed app have not been moved or changed.
+## Getting started
 
-## Tabs within panes
+You will need Node.js and npm, plus the Pi coding agent installed and configured with access to the model providers you want to use. Synthesis looks for `pi` at `~/.local/bin/pi` or on your `PATH`. Follow the [Pi project’s setup instructions](https://github.com/badlogic/pi-mono) for installation and provider authentication.
 
-Use the pane options menu (⋯) or right-click a pane to create a **New Terminal Tab** or **New Browser Tab**. Tabs can mix terminal sessions and browser pages. Switching tabs keeps terminals
-running and browser pages loaded. Close a tab with its × button; closing the
-last tab opens a fresh terminal in the same pane. Close a pane with its × button or through its options menu. The final pane cannot be closed, and pane controls never close a workspace. Pane removal fades and collapses smoothly, or happens immediately when Reduce Motion is enabled.
+From the project directory:
 
-- **⌘T** opens another tab of the current type.
-- **⌘W** closes the current tab (with confirmation when enabled).
-- **Control+Tab / Control+Shift+Tab** selects the next / previous tab.
-- **⌘Shift+T / ⌘Shift+W** creates / closes a workspace.
+```sh
+npm ci
+npm start
+```
 
-Settings includes a **Synthesis** accent preset with the logo’s lilac → sky → mint gradient. The active pane has a fine accent border, including when focusing native browser content. The Files bar shows the current folder beside its heading; its **⋯** button reveals filtering, hidden files, view options, the picker and breadcrumbs.
+Create a project for a working directory, start a chat, and select an available model. The application can also run chats without assigning them to a project.
 
-Shortcuts can be changed in Settings. Browser links that request a new window
-open a browser tab in the same pane. Workspaces save tab order, selection,
-browser URLs and zoom, and stable terminal session identities. Existing
-workspaces acquire tabs automatically; browser page form state is preserved
-when switching tabs, but is not restored after quitting the app.
+The `node-pty` post-install check attempts to rebuild its native binding if the bundled prebuild cannot start a process. If you need to force a rebuild:
 
-Tabs and pane controls share one 32-pixel row. Browser navigation and the
-address field appear in a thin row immediately below the tabs when a browser tab is selected. Drag a
-tab to reorder it or drop it on another pane in the same workspace. Moving
-the last tab out of a pane removes the empty pane. Running terminals and
-loaded browser pages retain their state when moved. Right-click a tab for
-move commands, or focus its label and use Alt+Shift+Left/Right to reorder it.
+```sh
+npm_config_build_from_source=true npm rebuild node-pty
+```
+
+### Build the macOS app
+
+```sh
+npm run package
+```
+
+The packaging script creates an ad-hoc signed Apple Silicon bundle at `dist/Synthesis-darwin-arm64/Synthesis.app`. Background scheduled tasks currently require macOS and a system Node.js installation.
+
+## Development
+
+```sh
+npm test                  # unit tests
+npm run test:integration  # Electron integration tests
+```
+
+Integration tests use temporary user-data directories. Local application state, session logs, dependencies, and generated builds are excluded from the repository by `.gitignore`.
+
+The main Electron process is in `main.js`, the renderer in `renderer.js`, `index.html`, and `styles.css`, and shared functionality lives in `lib/`. The `test/` directory contains unit and integration tests; `design-explorations/` contains interface experiments.
