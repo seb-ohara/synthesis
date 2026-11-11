@@ -271,7 +271,6 @@ function applySettings() {
   const fontFamily = appSettings.chatFont.startsWith('import:') ? 'Synthesis imported ' + appSettings.chatFont.slice(7) : appSettings.chatFont;
   document.documentElement.style.setProperty('--chat-font', fontFamily ? JSON.stringify(fontFamily) + ', sans-serif' : 'var(--sans)');
   document.documentElement.style.setProperty('--chat-font-size', appSettings.chatFontSize + 'px');
-  document.documentElement.style.setProperty('--thinking-gradient', appSettings.accentColor === 'synthesis' ? SYNTHESIS_GRADIENT : `linear-gradient(90deg, ${accentColor()}, ${accentColor()})`);
   document.documentElement.style.setProperty('--accent', accentColor());
   document.documentElement.style.setProperty('--accent-dim', darkenHex(accentColor()));
   document.documentElement.style.setProperty('--accent-fill', appSettings.accentColor === 'synthesis' ? SYNTHESIS_GRADIENT : accentColor());
@@ -1599,12 +1598,23 @@ function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body', 'chat-empty');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text">Thinking</span><span aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-format-menu" role="toolbar" aria-label="Text formatting" hidden><button type="button" data-format="bold">Bold</button><button type="button" data-format="italic">Italic</button><button type="button" data-format="bullet">Bulleted list</button><button type="button" data-format="number">Numbered list</button></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><button class="chat-format-toggle" type="button" aria-label="Format text" title="Format text" aria-expanded="false">Aa</button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
   const status = tab.body.querySelector('.chat-status');
   const statusText = tab.body.querySelector('.chat-status-text');
+  const statusEllipsis = tab.body.querySelector('.chat-status-ellipsis');
+  function setStatusText(text) {
+    statusText.replaceChildren(...Array.from(text, (character, index) => {
+      const letter = document.createElement('span');
+      letter.textContent = character;
+      letter.style.animationDelay = `${index * 0.09}s`;
+      return letter;
+    }));
+    statusEllipsis.style.animationDelay = `${Array.from(text).length * 0.09}s`;
+  }
+  setStatusText('Thinking');
   const form = tab.body.querySelector('form');
   const input = form.querySelector('textarea');
   const composerObserver = new ResizeObserver(() => tab.body.style.setProperty('--composer-height', form.offsetHeight + 'px'));
@@ -1862,7 +1872,7 @@ function initChatPane(ws, tab) {
   tab.unsubs.push(() => { clearInterval(timerInterval); if (pendingRender !== null) cancelAnimationFrame(pendingRender); });
   tab.modified = 0;
   function update() { renderReasoning(); if (lastControlsReady !== ready) { lastControlsReady = ready; if (!modelMenu.hidden) renderModels(); if (!reasoningMenu.hidden) renderReasoning(); } tab.isWorking = busy; if (lastSidebarBusy !== busy) { lastSidebarBusy = busy; scheduleStatusUpdate(projectWorkspace()); renderList(); } button.disabled = !ready || busy || changing || pendingImages > 0 || (!input.value.trim() && !attachments.length && !pastedImages.length); modelSelect.disabled = busy || changing || (!ready && !models.length); reasoningSelect.disabled = busy || changing || (!ready && !savedSelection.reasoning && !currentModel); attachButton.disabled = busy || changing; status.hidden = !busy; }
-  tab.abortChat = () => { if (busy) { command('abort'); statusText.textContent = 'Stopping…'; } };
+  tab.abortChat = () => { if (busy) { command('abort'); setStatusText('Stopping…'); } };
   function add(role, content, images = []) {
     if (!content && !images.length) return null;
     if (busy && role === 'error') turnHasError = true;
@@ -1959,7 +1969,7 @@ function initChatPane(ws, tab) {
     } else if (event.type === 'response' && event.command === 'get_commands') {
       externalCommands = event.success && Array.isArray(event.data?.commands) ? event.data.commands.filter(item => typeof item.name === 'string' && /^[\w:.-]+$/.test(item.name)) : []; if (!commandMenu.hidden) renderCommandMenu();
     } else if (event.type === 'response' && event.command === 'compact') {
-      busy = false; statusText.textContent = 'Thinking'; update(); if (!event.success) add('error', event.error || 'Could not compact this chat.'); else { add('assistant', 'Conversation context compacted.'); command('get_messages'); }
+      busy = false; setStatusText('Thinking'); update(); if (!event.success) add('error', event.error || 'Could not compact this chat.'); else { add('assistant', 'Conversation context compacted.'); command('get_messages'); }
     } else if (event.type === 'response' && event.command === 'export_html') {
       add(event.success ? 'assistant' : 'error', event.success ? 'Exported chat to `' + (event.data?.path || 'HTML file') + '`.' : (event.error || 'Could not export this chat.'));
     } else if (event.type === 'response' && event.command === 'get_session_stats') {
@@ -1983,16 +1993,16 @@ function initChatPane(ws, tab) {
     } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const text = textOf(event.message); if (text) turnHasOutput = true; if (pendingRender !== null) { cancelAnimationFrame(pendingRender); pendingRender = null; } if (streaming) { streaming.raw = text; renderText(streaming, text); } else if (text) add('assistant', text);
       if (event.message.errorMessage) add('error', event.message.errorMessage); streaming = null;
-    } else if (event.type === 'tool_execution_start') { statusText.textContent = 'Thinking'; }
+    } else if (event.type === 'tool_execution_start') { setStatusText('Thinking'); }
     else if (event.type === 'tool_execution_end') {
-      statusText.textContent = 'Thinking';
+      setStatusText('Thinking');
       if (event.toolName === 'rich_text') {
         const text = chatRichText.resultText(event.result);
         if (event.isError) add('error', text || 'The rich-text response could not be produced.');
         else if (text) { turnHasOutput = true; add('assistant', text); }
       }
     }
-    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted }); busy = false; finishTimer(); statusText.textContent = 'Thinking'; command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
+    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted }); busy = false; finishTimer(); setStatusText('Thinking'); command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
@@ -2017,7 +2027,7 @@ function initChatPane(ws, tab) {
     else if (name === 'hotkeys') openSettings('keyboard');
     else if (name === 'export') command('export_html', argument ? { outputPath: argument } : {});
     else if (name === 'new') addPaneTab(tab.owner.ws, tab.owner, { type: 'chat' });
-    else if (name === 'compact') { busy = true; statusText.textContent = 'Compacting'; command('compact', argument ? { customInstructions: argument } : {}); }
+    else if (name === 'compact') { busy = true; setStatusText('Compacting'); command('compact', argument ? { customInstructions: argument } : {}); }
     else if (name === 'name') { setPaneTitle(tab, argument.slice(0, 80)); setChatMeta(tab.sessionPath || tab.id, { title: argument.slice(0, 80) }); command('set_session_name', { name: argument.slice(0, 80) }); }
     else if (name === 'session') command('get_session_stats');
     else if (name === 'copy') { const text = [...messages.querySelectorAll('.chat-message.assistant .chat-message-content')].at(-1)?.raw; if (text) navigator.clipboard.writeText(text).catch(() => {}); }

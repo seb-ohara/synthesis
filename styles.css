@@ -1658,9 +1658,10 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .pane-body.chat-body { font-family: var(--chat-font, var(--sans)); font-size: var(--chat-font-size, 13px); }
 .chat-composer textarea { font-family: var(--chat-font, var(--sans)); font-size: var(--chat-font-size, 13px); }
 .chat-status { color: var(--accent); font-size: var(--chat-font-size, 13px); }
-.chat-thinking { display: inline-block; background: var(--thinking-gradient, linear-gradient(90deg, var(--accent), var(--accent))); background-clip: text; -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent; mask-image: linear-gradient(90deg, #0007 35%, #000 50%, #0007 65%); mask-size: 300% 100%; animation: thinking-pulse 2.25s linear infinite; }
-@keyframes thinking-pulse { 0% { mask-position: 100% 0; } 45%, 100% { mask-position: 0 0; } }
-@media (prefers-reduced-motion: reduce) { .chat-thinking { animation: none; mask-image: none; } }
+.chat-thinking { display: inline-block; color: #909090; }
+.chat-status-text > span, .chat-status-ellipsis { animation: chat-thinking-letter 1.8s ease-in-out infinite; }
+@keyframes chat-thinking-letter { 0%, 55%, 100% { color: #909090; } 25% { color: #fff; } }
+@media (prefers-reduced-motion: reduce) { .chat-status-text > span, .chat-status-ellipsis { animation: none; color: #bdbdbd; } }
 .font-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .font-controls .settings-select { min-width: 0; width: 150px; }
 .font-controls .ghost-btn { flex: none; }
