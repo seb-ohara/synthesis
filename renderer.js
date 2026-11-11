@@ -14,7 +14,6 @@ const els = {
   statusCwd: $('#status-cwd'),
   statusShell: $('#status-shell'),
   statusPts: $('#status-pts'),
-  wsCount: $('#ws-count'),
   crumb: $('#files-crumb'),
   filesBody: $('#files-body'),
   filesMeta: $('#files-meta'),
@@ -113,6 +112,7 @@ const SYNTHESIS_BORDER_GRADIENT = 'linear-gradient(110deg, #d9cbff86 0%, #b8eaff
 function accentColor() { return appSettings.accentColor === 'synthesis' ? SYNTHESIS_ACCENT : appSettings.accentColor; }
 
 const BUILT_IN_THEMES = {
+  'original-dark': { accentColor: '#ff7a1a', chatBackground: '#141416', sidebarColor: '#101011', bubbleColor: '#29383b', chatText: '#e9e9eb' },
   'warm-clay': { accentColor: '#b7512d', chatBackground: '#f8f5ed', sidebarColor: '#eee9dd', bubbleColor: '#eadbc9', chatText: '#302a25' },
   'midnight-ink': { accentColor: '#a99be4', chatBackground: '#191b24', sidebarColor: '#141620', bubbleColor: '#333047', chatText: '#efedf6' },
   'forest-moss': { accentColor: '#a7c28b', chatBackground: '#1b211d', sidebarColor: '#151b17', bubbleColor: '#304137', chatText: '#e8eee5' },
@@ -215,7 +215,7 @@ function loadSettings() {
     ? Number(saved.scrollback) : DEFAULT_SETTINGS.scrollback;
   return {
     ...DEFAULT_SETTINGS,
-    theme: Object.hasOwn(BUILT_IN_THEMES, saved.theme) ? saved.theme : '',
+    theme: saved.theme !== 'original-dark' && Object.hasOwn(BUILT_IN_THEMES, saved.theme) ? saved.theme : '',
     accentColor,
     ...Object.fromEntries(['chatBackground', 'sidebarColor', 'bubbleColor', 'chatText'].map(key => [key, /^#[0-9a-f]{6}$/i.test(saved[key] || '') ? saved[key] : DEFAULT_SETTINGS[key]])),
     fontSize,
@@ -446,6 +446,7 @@ menuEl.id = 'ctx-menu';
 document.body.appendChild(menuEl);
 
 function hideMenu() {
+  $('#pi-update-btn')?.setAttribute('aria-expanded', 'false');
   menuEl.classList.remove('visible');
   requestBrowserSync();
 }
@@ -472,7 +473,8 @@ function showMenu(x, y, items) {
       btn.appendChild(hint);
     }
     if (!it.disabled) {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', event => {
+        event.stopPropagation();
         hideMenu();
         it.action();
       });
@@ -496,6 +498,56 @@ document.addEventListener('contextmenu', (e) => {
 }, true);
 window.addEventListener('blur', hideMenu);
 window.addEventListener('resize', hideMenu);
+
+const piUpdateButton = $('#pi-update-btn');
+let piUpdateStatus = null, piUpdateBusy = false, piUpdateNotice = '';
+function renderPiUpdateIndicator() {
+  const available = !!piUpdateStatus?.ok && piUpdateStatus.available;
+  piUpdateButton.querySelector('.pi-update-dot').hidden = !available;
+  const label = available ? `Pi update available: ${piUpdateStatus.installed} to ${piUpdateStatus.latest}` : 'Pi updates';
+  piUpdateButton.setAttribute('aria-label', label); piUpdateButton.dataset.tip = label;
+}
+function showPiUpdateMenu() {
+  const rect = piUpdateButton.getBoundingClientRect();
+  const items = [];
+  if (piUpdateBusy) items.push({ label: piUpdateNotice || 'Checking for updates…', disabled: true });
+  else if (!piUpdateStatus) items.push({ label: 'Pi update status unavailable', disabled: true });
+  else if (!piUpdateStatus.ok) items.push({ label: piUpdateStatus.error || 'Could not check Pi updates', disabled: true });
+  else {
+    items.push({ label: `Installed: ${piUpdateStatus.installed}`, disabled: true });
+    if (piUpdateNotice) items.push({ label: piUpdateNotice, disabled: true });
+    else items.push({ label: piUpdateStatus.available ? `Available: ${piUpdateStatus.latest}` : 'Pi is up to date', disabled: true });
+    if (piUpdateStatus.available) items.push({ label: 'Update Pi', action: updatePi });
+  }
+  if (!piUpdateBusy) items.push({ label: 'Check for updates', action: () => checkPiUpdate(true) });
+  showMenu(rect.left, rect.bottom + 4, items);
+  piUpdateButton.setAttribute('aria-expanded', 'true');
+}
+async function checkPiUpdate(showProgress = false) {
+  if (piUpdateBusy) return;
+  piUpdateBusy = true; piUpdateNotice = 'Checking for updates…';
+  if (showProgress) showPiUpdateMenu();
+  try { piUpdateStatus = await window.mux.pi.checkUpdate(); }
+  catch { piUpdateStatus = { ok: false, error: 'Could not check Pi updates.' }; }
+  piUpdateBusy = false; piUpdateNotice = ''; renderPiUpdateIndicator();
+  if (piUpdateButton.getAttribute('aria-expanded') === 'true') showPiUpdateMenu();
+}
+async function updatePi() {
+  if (piUpdateBusy) return;
+  piUpdateBusy = true; piUpdateNotice = 'Updating Pi…'; showPiUpdateMenu();
+  try { piUpdateStatus = await window.mux.pi.update(); }
+  catch { piUpdateStatus = { ok: false, error: 'Could not update Pi.' }; }
+  piUpdateBusy = false;
+  piUpdateNotice = piUpdateStatus.ok ? 'Updated. New chats use this version.' : '';
+  renderPiUpdateIndicator();
+  if (piUpdateButton.getAttribute('aria-expanded') === 'true') showPiUpdateMenu();
+}
+piUpdateButton.addEventListener('click', event => {
+  event.stopPropagation();
+  if (piUpdateButton.getAttribute('aria-expanded') === 'true') hideMenu(); else showPiUpdateMenu();
+});
+checkPiUpdate();
+setInterval(() => checkPiUpdate(), 6 * 60 * 60 * 1000);
 
 /* ---------------- split tree (tiling) ---------------- */
 // leaf: { type:'leaf', pane }   ·   split: { type:'split', dir:'row'|'col', children:[...] }
@@ -2813,7 +2865,6 @@ function renderList() {
     animation.finished.then(() => ghost.remove(), () => ghost.remove());
   }
   if (!rows.length) { const empty = document.createElement('div'); empty.className = 'conversation-empty'; empty.textContent = query ? 'No chats match your search.' : showArchivedChats ? 'No archived chats in this view.' : projectFilter !== 'all' ? 'No chats in this project yet.' : 'Start a chat to see it here.'; main.append(empty); }
-  els.wsCount.textContent = `${rows.length} ${rows.length === 1 ? 'chat' : 'chats'}`;
 }
 
 const relativeTimeTimer = setInterval(() => { document.querySelectorAll('.conversation-time[data-timestamp]').forEach(time => { if (!time.dataset.snoozedUntil) time.textContent = relativeTime(Number(time.dataset.timestamp)); }); }, 60000);
@@ -4059,7 +4110,7 @@ function renderSettings() {
   customColor.value = accentColor();
   document.querySelectorAll('[data-theme-preset]').forEach(button => {
     const values = BUILT_IN_THEMES[button.dataset.themePreset];
-    const selected = appSettings.theme === button.dataset.themePreset && Object.entries(values).every(([key, value]) => appSettings[key].toLowerCase() === value.toLowerCase());
+    const selected = appSettings.theme === (button.dataset.themePreset === 'original-dark' ? '' : button.dataset.themePreset) && Object.entries(values).every(([key, value]) => appSettings[key].toLowerCase() === value.toLowerCase());
     button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
   });
   document.querySelectorAll('.accent-swatch').forEach((swatch) => {
@@ -4261,7 +4312,7 @@ $('#settings-tabs').addEventListener('click', (e) => {
 $('#theme-presets').addEventListener('click', event => {
   const button = event.target.closest('[data-theme-preset]');
   const theme = button?.dataset.themePreset;
-  if (theme && Object.hasOwn(BUILT_IN_THEMES, theme)) updateAppSettings({ theme, ...BUILT_IN_THEMES[theme] });
+  if (theme && Object.hasOwn(BUILT_IN_THEMES, theme)) updateAppSettings({ theme: theme === 'original-dark' ? '' : theme, ...BUILT_IN_THEMES[theme] });
 });
 $('#accent-presets').addEventListener('click', (e) => {
   const swatch = e.target.closest('[data-accent]');

@@ -14,6 +14,7 @@ const { PathGuard } = require('./lib/path-guard');
 const { createBrowserManager } = require('./lib/browser-views');
 const gitControls = require('./lib/git-controls');
 const { generateGitCommitMessage } = require('./lib/git-commit-message');
+const piUpdater = require('./lib/pi-updater').createPiUpdater();
 
 const SHELL = process.env.SHELL || '/bin/zsh';
 const MAX_HISTORY_BYTES = 10 * 1024 * 1024;
@@ -690,6 +691,8 @@ ipcMain.handle('app:openChatLink', async (_event, raw) => {
   if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return false;
   try { await shell.openExternal(url.toString()); return true; } catch { return false; }
 });
+ipcMain.handle('pi:check-update', async () => { try { return { ok: true, ...(await piUpdater.check()) }; } catch (error) { return { ok: false, error: error.message }; } });
+ipcMain.handle('pi:update', async () => { try { return { ok: true, ...(await piUpdater.update()) }; } catch (error) { return { ok: false, error: error.message }; } });
 ipcMain.handle('app:home', () => os.homedir());
 ipcMain.handle('app:shell', () => path.basename(SHELL));
 ipcMain.handle('app:allowRoot', (_e, root) => {

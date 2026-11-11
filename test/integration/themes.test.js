@@ -14,12 +14,17 @@ test('built-in themes apply, can be customised, and persist after restart', asyn
   t.after(async () => { if (app) await app.close(); fs.rmSync(userData, { recursive: true, force: true }); });
   let page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
   await page.evaluate(() => openSettings());
-  const presets = page.locator('[data-theme-preset]'); assert.equal(await presets.count(), 4);
+  const presets = page.locator('[data-theme-preset]'); assert.equal(await presets.count(), 5);
+  assert.equal(await page.locator('[data-theme-preset="original-dark"]').getAttribute('aria-pressed'), 'true');
   for (const [id, background] of [['warm-clay', 'rgb(248, 245, 237)'], ['midnight-ink', 'rgb(25, 27, 36)'], ['forest-moss', 'rgb(27, 33, 29)'], ['ocean-slate', 'rgb(25, 35, 42)']]) {
     const button = page.locator(`[data-theme-preset="${id}"]`); await button.click();
     assert.equal(await button.getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.ws-view.active .chat-body').evaluate(el => getComputedStyle(el).backgroundColor), background);
   }
+  await page.locator('[data-theme-preset="original-dark"]').click();
+  const original = await page.evaluate(() => ({ theme: appSettings.theme, accent: appSettings.accentColor, background: appSettings.chatBackground, sidebar: appSettings.sidebarColor, bubble: appSettings.bubbleColor, text: appSettings.chatText }));
+  assert.deepEqual(original, { theme: '', accent: '#ff7a1a', background: '#141416', sidebar: '#101011', bubble: '#29383b', text: '#e9e9eb' });
+  assert.equal(await page.locator('[data-theme-preset="original-dark"]').getAttribute('aria-pressed'), 'true');
   await page.locator('[data-theme-preset="warm-clay"]').click();
   const light = await page.evaluate(() => ({ background: getComputedStyle(document.querySelector('.chat-composer')).backgroundColor, text: getComputedStyle(document.querySelector('.chat-composer textarea')).color, sidebar: getComputedStyle(document.querySelector('#sidebar')).backgroundColor }));
   assert.deepEqual(light, { background: 'rgb(255, 253, 248)', text: 'rgb(48, 42, 37)', sidebar: 'rgb(238, 233, 221)' });
@@ -34,4 +39,10 @@ test('built-in themes apply, can be customised, and persist after restart', asyn
   await page.locator('#setting-chat-background').evaluate(el => { el.value = '#f2e9de'; el.dispatchEvent(new Event('input', { bubbles: true })); });
   assert.equal(await page.locator('[data-theme-preset="warm-clay"]').getAttribute('aria-pressed'), 'false');
   assert.equal(await page.evaluate(() => appSettings.chatBackground), '#f2e9de');
+  await page.locator('[data-theme-preset="original-dark"]').click();
+  await app.close(); app = null;
+  app = await _electron.launch({ args: [ROOT], cwd: ROOT, env }); page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  await page.evaluate(() => openSettings());
+  assert.equal(await page.locator('[data-theme-preset="original-dark"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.ws-view.active .chat-body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(20, 20, 22)');
 });

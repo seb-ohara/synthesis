@@ -32,7 +32,7 @@
         <div id="workspace-list"></div>
         <div class="side-foot">
           <button id="settings-btn" class="side-settings-btn" data-tip="Settings (⌘,)" aria-label="Open settings"><span aria-hidden="true">⚙</span><span>Settings</span></button>
-          <button id="scheduled-tasks-btn" class="icon-btn scheduled-tasks-trigger" type="button" aria-label="Scheduled tasks" data-tip="Scheduled tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></button><span id="ws-count">0 workspaces</span><button id="ws-collapse" class="icon-btn" data-tip="Hide workspaces" aria-label="Hide workspaces">«</button>
+          <button id="scheduled-tasks-btn" class="icon-btn scheduled-tasks-trigger" type="button" aria-label="Scheduled tasks" data-tip="Scheduled tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></button><button id="pi-update-btn" class="icon-btn pi-update-trigger" type="button" aria-label="Pi updates" aria-haspopup="true" aria-expanded="false" data-tip="Pi updates"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m-4-4 4 4 4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg><span class="pi-update-dot" hidden></span></button><button id="ws-collapse" class="icon-btn" data-tip="Hide workspaces" aria-label="Hide workspaces">«</button>
         </div>
       </div>
     </aside>
@@ -200,6 +200,7 @@
             <div class="theme-settings">
               <div class="settings-copy"><label>Built-in themes</label><p>Choose a palette, then customise the colours below.</p></div>
               <div id="theme-presets" class="theme-presets" role="group" aria-label="Built-in themes">
+                <button type="button" class="theme-preset" data-theme-preset="original-dark"><span class="theme-preview"><i></i><i></i><i></i></span><span>Original Dark</span></button>
                 <button type="button" class="theme-preset" data-theme-preset="warm-clay"><span class="theme-preview"><i></i><i></i><i></i></span><span>Warm Clay</span></button>
                 <button type="button" class="theme-preset" data-theme-preset="midnight-ink"><span class="theme-preview"><i></i><i></i><i></i></span><span>Midnight Ink</span></button>
                 <button type="button" class="theme-preset" data-theme-preset="forest-moss"><span class="theme-preview"><i></i><i></i><i></i></span><span>Forest Moss</span></button>
