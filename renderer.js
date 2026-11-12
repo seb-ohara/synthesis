@@ -4,6 +4,8 @@
 const $ = (sel) => document.querySelector(sel);
 const FILES_VIEW_STORAGE_KEY = 'synthesis.files.viewMode';
 const MAX_PANE_TABS = 1024;
+const CHAT_HISTORY_PAGE_SIZE = 60;
+let restoringWorkspaces = false;
 
 const els = {
   app: $('#app'),
@@ -1711,7 +1713,7 @@ function chatMarkup(value, remember = false) {
   return html;
 }
 function warmChatMarkup(messages) {
-  let index = 0;
+  let index = Math.max(0, messages.length - CHAT_HISTORY_PAGE_SIZE);
   const step = deadline => {
     let count = 0;
     while (index < messages.length && count++ < 12 && (deadline.didTimeout || deadline.timeRemaining() > 1)) {
@@ -1725,10 +1727,13 @@ function warmChatMarkup(messages) {
 }
 
 let synthesisSkills = [];
-async function refreshSkills() {
-  const result = await window.mux.skills.list();
-  if (result.ok) synthesisSkills = result.skills;
-  return result;
+let skillsPending = null;
+function refreshSkills() {
+  if (!skillsPending) skillsPending = window.mux.skills.list().then(result => {
+    if (result.ok) synthesisSkills = result.skills;
+    return result;
+  }).finally(() => { skillsPending = null; });
+  return skillsPending;
 }
 async function renderSkillSettings() {
   const [library, imports] = await Promise.all([refreshSkills(), window.mux.skills.piList()]);
@@ -2130,19 +2135,43 @@ function initChatPane(ws, tab) {
   function displayHistory(history) {
     welcome.hidden = false; turnCount = 0; historyFragment = document.createDocumentFragment();
     const meta = chatMeta(tab.sessionPath || tab.id), durations = meta.durations || {};
+    const visible = [];
     for (const m of history) {
       if (m.role === 'user' || m.role === 'assistant') {
-        const text = textOf(m); add(m.role, text, m.role === 'user' ? imagesOf(m) : []);
+        const text = textOf(m), images = m.role === 'user' ? imagesOf(m) : [];
         if (m.role === 'user' && text) {
-          turnCount++; if (Number.isFinite(durations[turnCount])) addTimer(durations[turnCount]);
+          turnCount++;
           tab.hasConversation = true;
           if (tab.title === 'Chat') setPaneTitle(tab, meta.title || text.replace(/\s+/g, ' ').slice(0, 45));
         }
+        if (text || images.length) visible.push({ role: m.role, text, images, duration: m.role === 'user' && text ? durations[turnCount] : undefined });
       } else if (m.role === 'toolResult' && m.toolName === 'rich_text') {
-        const text = chatRichText.resultText(m); if (text) add(m.isError ? 'error' : 'assistant', text);
+        const text = chatRichText.resultText(m); if (text) visible.push({ role: m.isError ? 'error' : 'assistant', text });
       }
     }
+    const renderRange = (start, end) => {
+      for (let i = start; i < end; i++) {
+        const item = visible[i]; add(item.role, item.text, item.images);
+        if (Number.isFinite(item.duration)) addTimer(item.duration);
+      }
+    };
+    let start = Math.max(0, visible.length - CHAT_HISTORY_PAGE_SIZE);
+    renderRange(start, visible.length);
     messages.replaceChildren(historyFragment); historyFragment = null;
+    if (start) {
+      const earlier = document.createElement('button'); earlier.type = 'button'; earlier.className = 'chat-load-earlier text-button';
+      const label = () => { earlier.textContent = `Load earlier messages (${start})`; };
+      label(); messages.prepend(earlier);
+      earlier.addEventListener('click', () => {
+        const height = scroll.scrollHeight, top = scroll.scrollTop;
+        const next = Math.max(0, start - CHAT_HISTORY_PAGE_SIZE);
+        historyFragment = document.createDocumentFragment(); renderRange(next, start);
+        earlier.after(historyFragment); historyFragment = null; start = next;
+        if (start) label(); else earlier.remove();
+        // Prepending keeps existing message nodes and live responses intact.
+        scroll.scrollTop = top + scroll.scrollHeight - height;
+      });
+    }
     if (tab.hasConversation && tab.sessionPath) rememberConversation(tab.sessionPath);
     scroll.scrollTop = scroll.scrollHeight;
   }
@@ -2288,7 +2317,15 @@ function addPaneTab(ws, pane, opts = {}, activate = true) {
   if (!pane.activeTab) pane.activeTab = tab;
   body.classList.toggle('tab-hidden', pane.activeTab !== tab);
   if (type === 'browser') initBrowserPane(ws, tab, opts);
-  else if (type === 'chat') { tab.sessionPath = opts.sessionPath || ''; tab.chatCwd = opts.chatCwd || ws.cwd; tab.projectId = opts.projectId || ws.id; initChatPane(ws, tab); }
+  else if (type === 'chat') {
+    tab.sessionPath = opts.sessionPath || ''; tab.chatCwd = opts.chatCwd || ws.cwd; tab.projectId = opts.projectId || ws.id;
+    // Restored background tabs need their identity, not a hidden composer,
+    // observers and model menus. Build those when the thread is first opened.
+    if (opts.restore) {
+      body.classList.add('chat-body', 'chat-empty');
+      tab.startChat = () => { if (tab.disposed) return; initChatPane(ws, tab); tab.startChat(); };
+    } else initChatPane(ws, tab);
+  }
   else initTerminalPane(ws, tab);
   renderPaneTabs(pane);
   if (activate) activateTab(ws, pane, tab);
@@ -2675,7 +2712,13 @@ async function refreshProjectChats(ws) {
   try {
     const owned = Object.keys(readLocalMap(OWNED_CHATS_KEY));
     const groups = await Promise.all(directories.map(async directory => (await window.mux.chat.sessions(directory, owned)).map(session => ({ ...session, cwd: directory }))));
-    if (state.workspaces.includes(ws) && ws.cwd === cwd && ws.chatRefreshSeq === seq) { ws.chatHistory = [...new Map(groups.flat().map(session => [session.path, session])).values()]; renderList(); scheduleChatPreload(); }
+    if (state.workspaces.includes(ws) && ws.cwd === cwd && ws.chatRefreshSeq === seq) {
+      ws.chatHistory = [...new Map(groups.flat().map(session => [session.path, session])).values()];
+      if (!refreshProjectChats.queued) {
+        refreshProjectChats.queued = true;
+        requestAnimationFrame(() => { refreshProjectChats.queued = false; renderList(); scheduleChatPreload(); });
+      }
+    }
   } catch {}
 }
 function conversationRows() {
@@ -2891,8 +2934,7 @@ function conversationProjectIcon(scratch = false) {
 }
 
 function renderList() {
-  const previousCards = new Map([...els.list.querySelectorAll('.chat-card[data-key]')].map(card => [card.dataset.key, { section: card.dataset.section, rect: card.getBoundingClientRect(), anchor: card.closest('.conversation-section')?.querySelector('.conversation-section-toggle')?.getBoundingClientRect(), clone: card.cloneNode(true) }]));
-  els.list.replaceChildren();
+  if (restoringWorkspaces) return;
   const query = $('#workspace-search').value.trim().toLocaleLowerCase();
   const metadata = readLocalMap(CHAT_META_KEY), scratch = readLocalMap(SCRATCH_KEY);
   const rows = conversationRows().filter(row => {
@@ -2901,6 +2943,13 @@ function renderList() {
     return matchesProject && !!meta.archived === showArchivedChats && `${row.title} ${scratch[row.ws.id] ? 'No project' : row.ws.name} ${row.ws.cwd}`.toLocaleLowerCase().includes(query);
   });
   rows.sort((a, b) => Number(!!metadata[b.key]?.pinned) - Number(!!metadata[a.key]?.pinned) || (workspaceSortAlphabetically ? a.title.localeCompare(b.title) : b.modified - a.modified));
+  const sectionsByKey = new Map(rows.map(row => [row.key, metadata[row.key]?.snoozedUntil > Date.now() ? 'snoozed' : row.tab?.isWorking ? 'working' : metadata[row.key]?.settled ? 'settled' : 'main']));
+  const previousCards = new Map();
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) for (const card of els.list.querySelectorAll('.chat-card[data-key]')) {
+    if (!sectionsByKey.has(card.dataset.key) || sectionsByKey.get(card.dataset.key) === card.dataset.section) continue;
+    previousCards.set(card.dataset.key, { section: card.dataset.section, rect: card.getBoundingClientRect(), anchor: card.closest('.conversation-section')?.querySelector('.conversation-section-toggle')?.getBoundingClientRect(), clone: card.cloneNode(true) });
+  }
+  els.list.replaceChildren();
   const main = document.createElement('div'); main.className = 'conversation-section-items'; els.list.append(main);
   const sections = {};
   for (const name of ['working', 'settled', 'snoozed']) {
@@ -4698,9 +4747,12 @@ window.addEventListener('beforeunload', () => {
 (async function boot() {
   applySettings();
   if (appSettings.chatFont.startsWith('import:')) loadAvailableFonts(false);
-  state.home = await window.mux.app.home();
-  els.statusShell.textContent = await window.mux.app.shellName();
-  const limits = await window.mux.fs.limits().catch(() => null);
+  const [home, shellName, limits, saved] = await Promise.all([
+    window.mux.app.home(), window.mux.app.shellName(),
+    window.mux.fs.limits().catch(() => null), window.mux.sessions.load().catch(() => null),
+  ]);
+  state.home = home;
+  els.statusShell.textContent = shellName;
   if (limits && limits.maxBytes) previewLimits = limits;
   updateFilesControls();
 
@@ -4713,12 +4765,11 @@ window.addEventListener('beforeunload', () => {
   // shapes and falls back to its last-known-good snapshot). Terminal panes
   // reattach to live daemon sessions by stable pane id, or visibly show
   // Ended / Unavailable instead of stale output.
-  let saved = null;
-  try { saved = await window.mux.sessions.load(); } catch { /* fresh start */ }
   if (saved && Array.isArray(saved.workspaces) && saved.workspaces.length) {
-    for (const spec of saved.workspaces) {
-      createWorkspace({ name: spec.name, cwd: spec.cwd, id: spec.id, restore: spec });
-    }
+    restoringWorkspaces = true;
+    try {
+      for (const spec of saved.workspaces) createWorkspace({ name: spec.name, cwd: spec.cwd, id: spec.id, restore: spec });
+    } finally { restoringWorkspaces = false; }
   }
   // Reuse an untouched scratch space; otherwise create a new one without changing saved chats.
   let fresh = state.workspaces.find(ws => isScratch(ws) && workspaceTabs(ws).every(tab => tab.type === 'chat' && !tab.hasConversation && !(tab.sessionPath && readLocalMap(OWNED_CHATS_KEY)[tab.sessionPath])));

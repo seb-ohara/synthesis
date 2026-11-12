@@ -93,7 +93,7 @@ test('closing the last tab closes its split while preserving the final pane', as
   assert.equal(await page.locator('.ws-view.active .chat-body').count(), 1);
 });
 
-test('long chat histories render in one layout pass and preserve message order', async t => {
+test('long chat histories page older messages without replacing live replies', async t => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-history-speed-'));
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
@@ -108,15 +108,37 @@ test('long chat histories render in one layout pass and preserve message order',
     window.__historyLayoutReads = 0;
     Object.defineProperty(scroll, 'scrollHeight', { configurable: true, get() { window.__historyLayoutReads++; return getter.call(this); } });
   });
+  await page.evaluate(() => {
+    const ws = activeWs(), tab = ws.panes[ws.activePaneIdx].activeTab;
+    setChatMeta(tab.sessionPath || tab.id, { durations: { 1: 5000, 71: 7000 } });
+  });
   await app.evaluate(({ BrowserWindow }, tabId) => {
     const messages = Array.from({ length: 200 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `Message ${i}` }));
+    messages[0].content = [{ type: 'text', text: 'Message 0' }, { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a+S0AAAAASUVORK5CYII=' }];
+    messages[1] = { role: 'toolResult', toolName: 'rich_text', content: [{ type: 'text', text: 'Message 1' }] };
     BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id: tabId, event: { type: 'response', command: 'get_messages', success: true, data: { messages } } });
   }, id);
-  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .chat-message').length === 200);
+  await page.waitForFunction(() => document.querySelectorAll('.ws-view.active .chat-message').length === 60);
   const result = await page.evaluate(() => ({ reads: window.__historyLayoutReads, texts: [...document.querySelectorAll('.ws-view.active .chat-message-content')].map(node => node.textContent) }));
   assert.ok(result.reads <= 2, `Expected one layout read, got ${result.reads}`);
-  assert.equal(result.texts[0].trim(), 'Message 0');
+  assert.equal(result.texts[0].trim(), 'Message 140');
   assert.equal(result.texts.at(-1).trim(), 'Message 199');
+  assert.equal(await page.locator('.ws-view.active .chat-work-timer').textContent(), 'Worked for 7s');
+  assert.equal(await page.locator('.ws-view.active .chat-message-image').count(), 0);
+  await page.evaluate(() => { window.__lastHistoryNode = document.querySelector('.ws-view.active .chat-message:last-child'); });
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].webContents.send('chat:event', { id, event: { type: 'message_end', message: { role: 'assistant', content: 'Live reply' } } }), id);
+  await page.locator('.ws-view.active .chat-message.assistant').filter({ hasText: 'Live reply' }).waitFor();
+  const earlier = page.locator('.ws-view.active .chat-load-earlier');
+  for (const count of [121, 181, 201]) {
+    await earlier.click();
+    assert.equal(await page.locator('.ws-view.active .chat-message').count(), count);
+    assert.equal(await page.evaluate(() => window.__lastHistoryNode.isConnected), true);
+  }
+  assert.equal(await earlier.count(), 0);
+  const texts = await page.locator('.ws-view.active .chat-message-content').allTextContents();
+  assert.deepEqual(texts.map(text => text.trim()), [...Array.from({ length: 200 }, (_, i) => `Message ${i}`), 'Live reply']);
+  assert.equal(await page.locator('.ws-view.active .chat-message-image').count(), 1);
+  assert.deepEqual(await page.locator('.ws-view.active .chat-work-timer').allTextContents(), ['Worked for 5s', 'Worked for 7s']);
 });
 
 test('session metadata refresh notices changes after a cached scan', async t => {

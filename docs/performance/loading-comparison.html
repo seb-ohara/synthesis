@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; }
+body { margin:0; color:var(--foreground); font-family:var(--font-sans,system-ui); font-size:14px; }
+.chart { height:400px; }
+@media (max-width:350px) { .chart { height:465px; } }
+.axis, .series { display:grid; grid-template-columns:44px minmax(0,1fr)70px; align-items:center; gap:8px; }
+.axis { margin:0 0 14px; color:var(--muted-foreground); font-size:12px; }
+.ticks { display:flex; justify-content:space-between; }
+.metric { margin-bottom:18px; }
+.label { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:5px; }
+.label span { color:var(--success); font-size:13px; }
+.series { height:23px; font-size:12px; }
+.track { height:12px; border-left:1px solid var(--border); }
+.bar { height:12px; min-width:2px; border-radius:2px; }
+.before { background:var(--chart-2); }
+.after { background:var(--chart-1); }
+.value { text-align:right; font-variant-numeric:tabular-nums; }
+.note { margin:6px 0 0; font-size:12px; line-height:1.5; color:var(--muted-foreground); }
+</style></head><body>
+<div class="chart" role="img" aria-label="Five-run median loading times. App load decreased from 1796 to 796 milliseconds; opening a 1000-message thread from 397 to 134; app load and 100 previews from 2600 to 1011; reading 24 saved files from 277 to 36. All bars share a zero to 3000 millisecond scale.">
+<div class="axis"><span>ms</span><div class="ticks"><span>0</span><span>1,000</span><span>2,000</span><span>3,000</span></div><span></span></div>
+<section class="metric"><div class="label"><strong>Initial app load</strong><span>56% less waiting</span></div>
+<div class="series"><span>Before</span><div class="track"><div class="bar before" style="width:59.856%"></div></div><span class="value">1,796 ms</span></div>
+<div class="series"><span>After</span><div class="track"><div class="bar after" style="width:26.526%"></div></div><span class="value">796 ms</span></div>
+</section>
+<section class="metric"><div class="label"><strong>Open a 1,000-message thread</strong><span>66% less waiting</span></div>
+<div class="series"><span>Before</span><div class="track"><div class="bar before" style="width:13.243%"></div></div><span class="value">397 ms</span></div>
+<div class="series"><span>After</span><div class="track"><div class="bar after" style="width:4.457%"></div></div><span class="value">134 ms</span></div>
+</section>
+<section class="metric"><div class="label"><strong>App load + 100 thread previews</strong><span>61% less waiting</span></div>
+<div class="series"><span>Before</span><div class="track"><div class="bar before" style="width:86.671%"></div></div><span class="value">2,600 ms</span></div>
+<div class="series"><span>After</span><div class="track"><div class="bar after" style="width:33.705%"></div></div><span class="value">1,011 ms</span></div>
+</section>
+<section class="metric"><div class="label"><strong>Read 24 saved thread files</strong><span>87% less waiting</span></div>
+<div class="series"><span>Before</span><div class="track"><div class="bar before" style="width:9.250%"></div></div><span class="value">277 ms</span></div>
+<div class="series"><span>After</span><div class="track"><div class="bar after" style="width:1.207%"></div></div><span class="value">36 ms</span></div>
+</section>
+</div><p class="note">Five-run medians · Synthetic local fixtures · Shorter bars mean less waiting.<br>AI response time is excluded. Long threads initially show the latest 60 messages.</p>
+</body></html>

@@ -48,6 +48,7 @@ The packaging script creates an ad-hoc signed Apple Silicon bundle at `dist/Synt
 ```sh
 npm test                  # unit tests
 npm run test:integration  # Electron integration tests
+npm run benchmark:loading # five-run local loading benchmark
 ```
 
 Integration tests use temporary user-data directories. Local application state, session logs, dependencies, and generated builds are excluded from the repository by `.gitignore`.

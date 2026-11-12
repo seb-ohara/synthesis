@@ -65,3 +65,19 @@ test('the history preview exposes model and reasoning from the selected branch',
   assert.deepEqual(projection.selection, { model: { provider: 'openai', id: 'current' }, reasoning: 'high' });
   assert.equal(projection.messages[0].content, 'Hello');
 });
+
+test('pooled readers isolate concurrent files and recover after invalid sessions', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'synthesis-history-workers-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const reader = createHistoryReader(), files = Array.from({ length: 12 }, (_, i) => path.join(dir, `${i}.jsonl`));
+  await Promise.all(files.map((file, i) => fs.writeFile(file, i === 3 ? 'invalid session' : source([message('a', null, 'user', `File ${i}`)]))));
+  const results = await Promise.allSettled(files.map(file => reader.load(cwd, file)));
+  results.forEach((result, i) => {
+    assert.equal(result.status, i === 3 ? 'rejected' : 'fulfilled');
+    if (result.status === 'fulfilled') assert.equal(result.value[0].content, `File ${i}`);
+  });
+  await fs.writeFile(files[3], source([message('a', null, 'user', 'Repaired')]));
+  assert.equal((await reader.load(cwd, files[3]))[0].content, 'Repaired');
+  const [first, second] = await Promise.all([reader.load(cwd, files[0]), reader.load(cwd, files[0])]);
+  assert.equal(first, second);
+});
