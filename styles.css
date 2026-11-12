@@ -327,7 +327,7 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
   border-radius: 50%;
   background: currentColor;
 }
-.ws-status.done { color: #a6d994; }
+.ws-status.done { color: #02c386; }
 .ws-status.done .ws-status-indicator {
   width: auto;
   height: auto;
@@ -2020,7 +2020,7 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 .conversation-settle:hover, .conversation-snooze:hover { color: var(--text); }
 .conversation-settle:focus-visible, .conversation-snooze:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .conversation-snooze svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.chat-card .ws-status.done { color: #a6d994; text-transform: none; font-size: 12px; }
+.chat-card .ws-status.done { color: #02c386; text-transform: none; font-size: 12px; }
 .ws-status.done .ws-status-indicator { width: auto; height: auto; border: 0; align-items: center; }
 .ws-status.done .ws-status-indicator::after { font-size: 13px; }
 #sidebar .chat-card:hover:not(.active) { background: color-mix(in srgb, var(--sidebar-background, #101011), white 4%); }
@@ -2191,4 +2191,30 @@ body.split-resizing-col * { cursor: row-resize !important; user-select: none !im
 /* Keep non-actionable menu status text readable in both light and dark themes. */
 .ctx-item.disabled { color: var(--muted); }
 
-:root[data-theme="warm-clay"] .chat-card .ws-status.done { color: #39712f; }
+
+/* Synthesis skills and Markdown file previews */
+.skill-settings-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); font-size:12px; }
+.skill-settings-row > div { flex:1; min-width:0; }
+.skill-settings-row p { margin:4px 0 0; color:var(--muted); line-height:1.4; }
+.skill-settings-row button { flex:none; color:var(--text); background:var(--panel-alt); border:1px solid var(--line); border-radius:5px; padding:6px 9px; cursor:pointer; }
+.skill-settings-row button:disabled { opacity:.5; cursor:default; }
+#skills-list { margin-bottom:24px; color:var(--muted); font-size:12px; }
+#skills-status { color:var(--muted); font-size:12px; }
+#preview-code.markdown-preview { font: 13px/1.6 var(--sans); color:var(--text); overflow-wrap:anywhere; }
+.markdown-preview :is(h1,h2,h3,h4,h5,h6) { line-height:1.3; margin:1em 0 .45em; }
+.markdown-preview :is(ul,ol) { padding-left:1.6em; }
+.markdown-preview pre { overflow:auto; padding:10px; background:var(--panel-alt); }
+.markdown-preview :is(td,th) { border:1px solid var(--line); padding:4px; }
+a[href]:hover, a[href]:focus-visible { text-decoration:underline; }
+
+/* Keep skill mentions readable while the textarea remains fully editable. */
+.chat-input-wrap { position: relative; }
+.chat-input-mirror { position: absolute; inset: 0; overflow: hidden; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none; padding: 1px 4px 0; color: var(--chat-text, #e9e9eb); font-family: var(--chat-font, var(--sans)); font-size: var(--chat-font-size, 13px); line-height: max(20px, 1.4em); }
+.chat-composer .chat-input-wrap textarea { position: relative; color: transparent; caret-color: var(--chat-text, #e9e9eb); }
+.chat-composer .chat-input-wrap textarea::placeholder { color: color-mix(in srgb, var(--chat-text, #e9e9eb), transparent 45%); }
+.chat-skill-mention, .chat-skill-menu-label { color: var(--accent); }
+.chat-skill-dollar { position: relative; color: transparent; }
+.skill-symbol { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; vertical-align: -0.12em; }
+.chat-skill-dollar .skill-symbol { position: absolute; left: 0; top: 50%; width: 100%; height: 1em; transform: translateY(-50%); color: var(--accent); }
+.chat-skill-menu-label .skill-symbol { margin-right: 5px; }
+.chat-command-empty { padding: 9px 8px; color: var(--muted); font: 12px var(--sans); }

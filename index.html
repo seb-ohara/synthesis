@@ -96,6 +96,7 @@
     <form id="scheduled-form" hidden>
       <label>Task name<input id="scheduled-title" type="text" maxlength="120" required></label>
       <label>Instructions<textarea id="scheduled-prompt" maxlength="50000" rows="4" required></textarea></label>
+      <label>Skill <select id="scheduled-skill"><option value="">None</option></select></label>
       <label>Project<select id="scheduled-project" required></select></label>
       <div class="schedule-row"><label>Repeat<select id="scheduled-frequency"><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Every week</option></select></label><label id="scheduled-day-label" hidden>Day<select id="scheduled-day"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option></select></label><label>Time<input id="scheduled-time" type="time" required value="09:00"></label></div>
       <p class="schedule-hint">Uses the current chat’s model when available. Runs missed while the Mac is asleep start once after it wakes.</p>
@@ -193,6 +194,7 @@
           <button class="settings-tab active" data-settings-tab="appearance">Appearance</button>
           <button class="settings-tab" data-settings-tab="behavior">Behavior</button>
           <button class="settings-tab" data-settings-tab="keyboard">Keyboard</button>
+          <button class="settings-tab" data-settings-tab="skills">Skills</button>
         </nav>
         <div class="settings-pages">
           <section class="settings-page" data-settings-page="appearance">
@@ -292,6 +294,7 @@
             </div>
           </section>
 
+          <section class="settings-page hidden" data-settings-page="skills"><div class="settings-section-title">Synthesis skills</div><p class="settings-intro">Use $name in chat, or choose a skill for a scheduled task. Skills are stored in your Synthesis library.</p><p id="skills-directory" class="settings-intro"></p><div id="skills-list"></div><div class="settings-section-title">Import from Pi</div><p class="settings-intro">Copy skills from Pi into your Synthesis library. Existing skills are never overwritten.</p><div id="skills-import-list"></div><p id="skills-status" role="status"></p></section>
           <section class="settings-page hidden" data-settings-page="keyboard">
             <div class="settings-section-title">Keyboard shortcuts</div>
             <p class="settings-intro">Click a shortcut to record a new key combination. Use ⌘ or Ctrl with a key.</p>

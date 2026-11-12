@@ -1724,11 +1724,61 @@ function warmChatMarkup(messages) {
   requestIdleCallback(step, { timeout: 1000 });
 }
 
+let synthesisSkills = [];
+async function refreshSkills() {
+  const result = await window.mux.skills.list();
+  if (result.ok) synthesisSkills = result.skills;
+  return result;
+}
+async function renderSkillSettings() {
+  const [library, imports] = await Promise.all([refreshSkills(), window.mux.skills.piList()]);
+  const list = $('#skills-list'), available = $('#skills-import-list'), status = $('#skills-status');
+  list.replaceChildren(); available.replaceChildren();
+  status.textContent = library.error || imports.error || '';
+  $('#skills-directory').textContent = library.directory ? `Library: ${library.directory}` : '';
+  if (!synthesisSkills.length) list.textContent = 'No Synthesis skills yet. Import one below or add a skill folder to the library.';
+  for (const skill of synthesisSkills) {
+    const row = document.createElement('div'); row.className = 'skill-settings-row';
+    const details = document.createElement('div'); const title = document.createElement('strong'); title.textContent = skill.name;
+    const description = document.createElement('p'); description.textContent = skill.description; details.append(title, description);
+    const open = document.createElement('button'); open.type = 'button'; open.textContent = 'View'; open.addEventListener('click', () => { closeSettings(); const ws = activeWs(), pane = ws?.panes[ws.activePaneIdx]; if (ws && pane) openChatTarget(ws, pane, dirname(skill.path), skill.path, 'tab'); });
+    row.append(details, open); list.append(row);
+  }
+  if (!imports.skills?.length) available.textContent = 'No compatible Pi skills found.';
+  for (const skill of imports.skills || []) {
+    const row = document.createElement('div'); row.className = 'skill-settings-row';
+    const details = document.createElement('div'); const title = document.createElement('strong'); title.textContent = skill.name;
+    const description = document.createElement('p'); description.textContent = skill.description; details.append(title, description);
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = skill.imported ? 'Already in library' : 'Import'; button.disabled = skill.imported;
+    button.addEventListener('click', async () => { button.disabled = true; const result = await window.mux.skills.import(skill.source); if (!result.ok) { status.textContent = result.error; button.disabled = false; return; } await renderSkillSettings(); status.textContent = `Imported ${result.name}.`; });
+    row.append(details, button); available.append(row);
+  }
+}
+function makeSkillIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('aria-hidden', 'true'); svg.classList.add('skill-symbol');
+  const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  shape.setAttribute('d', 'M8 1.5 14 4.8v6.4L8 14.5l-6-3.3V4.8L8 1.5Zm-6 3.3L8 8l6-3.2M8 8v6.5');
+  svg.append(shape); return svg;
+}
+function skillTextFragment(value) {
+  const fragment = document.createDocumentFragment(), names = new Set(synthesisSkills.map(skill => skill.name));
+  let offset = 0;
+  for (const match of value.matchAll(/\$([a-z0-9]+(?:-[a-z0-9]+)*)(?![a-zA-Z0-9_-])/g)) {
+    if (!names.has(match[1])) continue;
+    fragment.append(document.createTextNode(value.slice(offset, match.index)));
+    const mention = document.createElement('span'); mention.className = 'chat-skill-mention';
+    const dollar = document.createElement('span'); dollar.className = 'chat-skill-dollar'; dollar.textContent = '$'; dollar.append(makeSkillIcon());
+    mention.append(dollar, document.createTextNode(match[1])); fragment.append(mention);
+    offset = match.index + match[0].length;
+  }
+  fragment.append(document.createTextNode(value.slice(offset))); return fragment;
+}
 function initChatPane(ws, tab) {
   const chatCwd = tab.chatCwd || ws.cwd;
   const projectWorkspace = () => state.workspaces.find(item => item.id === tab.projectId) || ws;
   tab.body.classList.add('chat-body', 'chat-empty');
-  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use / for commands; attach files with the paperclip."></textarea><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><img class="chat-model-icon" alt="" aria-hidden="true" hidden><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
+  tab.body.innerHTML = `<div class="chat-scroll"><div class="chat-thread"><div class="chat-welcome"><span class="chat-symbol">✳</span><h2>What shall we work on?</h2><p>Ask Pi to explore, create, or change something in this workspace.</p></div><div class="chat-messages" aria-live="polite"></div><div class="chat-status" hidden><span class="chat-thinking"><span class="chat-status-text"></span><span class="chat-status-ellipsis" aria-hidden="true">…</span></span></div></div></div><div class="chat-attachments" aria-label="Attachments" hidden></div><form class="chat-composer"><div class="chat-command-menu" role="listbox" aria-label="Pi commands" hidden></div><div class="chat-input-wrap"><div class="chat-input-mirror" aria-hidden="true"></div><textarea rows="1" aria-label="Message Pi" placeholder="Ask anything… Use $ for skills, / for commands; attach files with the paperclip."></textarea></div><div class="chat-compose-bottom"><button class="chat-attach" type="button" aria-label="Attach a file or folder" title="Attach a file or folder"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-8.49 8.49a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg></button><button class="chat-git" type="button" aria-label="Open Git menu" aria-haspopup="dialog" aria-expanded="false" title="Open Git menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 2.6a2 2 0 0 1 2.8 0l8 8a2 2 0 0 1 0 2.8l-8 8a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1 0-2.8z"/><path d="m7.5 5.5 4 4v5m0-5 4 4"/><circle cx="11.5" cy="9.5" r="1.1"/><circle cx="11.5" cy="15.5" r="1.1"/><circle cx="16.5" cy="14.5" r="1.1"/></svg></button><div class="chat-controls"><div class="chat-model-picker"><button class="chat-model-trigger" type="button" aria-label="Choose model" aria-haspopup="dialog" aria-expanded="false"><img class="chat-model-icon" alt="" aria-hidden="true" hidden><span class="chat-model-label">Loading models…</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-model-menu" role="dialog" aria-label="Choose model" hidden><div class="chat-model-header"><strong>Choose a model</strong><input class="chat-model-search" type="search" placeholder="Search models or providers" aria-label="Search models or providers"></div><div class="chat-model-layout"><nav class="chat-model-nav" aria-label="Filter models"></nav><div class="chat-model-results"><div class="chat-model-list-heading"></div><div class="chat-model-list"></div></div></div></div></div><div class="chat-reasoning-picker"><button class="chat-reasoning-trigger" type="button" aria-label="Choose reasoning level" aria-haspopup="dialog" aria-expanded="false"><span class="chat-reasoning-label">Off</span><svg class="chat-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg></button><div class="chat-reasoning-menu chat-model-menu" role="dialog" aria-label="Choose reasoning level" hidden><div class="chat-reasoning-list"></div></div></div></div><button class="chat-send" type="submit" aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v6a3 3 0 0 1-3 3H5m4-4-4 4 4 4"/></svg></button></div></form>`;
   const messages = tab.body.querySelector('.chat-messages');
   const scroll = tab.body.querySelector('.chat-scroll');
   const welcome = tab.body.querySelector('.chat-welcome');
@@ -1747,6 +1797,7 @@ function initChatPane(ws, tab) {
   setStatusText('Thinking');
   const form = tab.body.querySelector('form');
   const input = form.querySelector('textarea');
+  const inputMirror = form.querySelector('.chat-input-mirror');
   const composerObserver = new ResizeObserver(() => tab.body.style.setProperty('--composer-height', form.offsetHeight + 'px'));
   composerObserver.observe(form); tab.unsubs.push(() => composerObserver.disconnect());
   const button = form.querySelector('.chat-send');
@@ -1763,29 +1814,45 @@ function initChatPane(ws, tab) {
     { name: 'session', description: 'Show session statistics', builtin: true },
     { name: 'copy', description: 'Copy the last response', builtin: true },
   ];
-  let externalCommands = [], visibleCommands = [], commandIndex = 0;
+  let externalCommands = [], visibleCommands = [], commandIndex = 0, skillLookup = 0;
+  refreshSkills().then(() => { updateInputMirror(); if (!commandMenu.hidden) renderCommandMenu(); });
   function renderCommandMenu() {
-    const match = input.value.match(/^\/([^\s]*)$/); commandMenu.replaceChildren();
-    if (!match) { commandMenu.hidden = true; return; }
-    const query = match[1].toLowerCase();
-    visibleCommands = [...builtinCommands, ...externalCommands.filter(item => !builtinCommands.some(b => b.name === item.name))].filter(item => item.name.toLowerCase().includes(query)).slice(0, 12);
+    const before = input.value.slice(0, input.selectionStart);
+    const skillMatch = /\$([a-z0-9-]*)$/i.exec(before);
+    const slashMatch = /^\/([^\s]*)$/.exec(input.value);
+    commandMenu.replaceChildren();
+    if (!skillMatch && !slashMatch) { commandMenu.hidden = true; return; }
+    const query = (skillMatch ? skillMatch[1] : slashMatch[1]).toLowerCase();
+    visibleCommands = (skillMatch
+      ? synthesisSkills.map(skill => ({ name: skill.name, description: skill.description, skill: true }))
+      : [...builtinCommands, ...externalCommands.filter(item => !builtinCommands.some(b => b.name === item.name))]
+    ).filter(item => item.name.toLowerCase().includes(query)).slice(0, 12);
     commandIndex = Math.min(commandIndex, Math.max(0, visibleCommands.length - 1));
     for (const [index, item] of visibleCommands.entries()) {
       const option = document.createElement('button'); option.type = 'button'; option.className = 'chat-command-option'; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(index === commandIndex));
-      const label = document.createElement('span'); label.textContent = '/' + item.name;
+      const label = document.createElement('span'); label.textContent = (item.skill ? '$' : '/') + item.name;
+      if (item.skill) { label.className = 'chat-skill-menu-label'; label.prepend(makeSkillIcon()); }
       const description = document.createElement('small'); description.textContent = item.description || ''; option.append(label, description);
       option.addEventListener('mousedown', event => event.preventDefault());
       option.addEventListener('click', () => chooseCommand(index)); commandMenu.append(option);
     }
-    commandMenu.hidden = !visibleCommands.length;
+    if (skillMatch && !visibleCommands.length) { const empty = document.createElement('div'); empty.className = 'chat-command-empty'; empty.textContent = synthesisSkills.length ? 'No matching skills' : 'No skills'; commandMenu.append(empty); }
+    commandMenu.hidden = !skillMatch && !visibleCommands.length;
   }
   function chooseCommand(index) {
     const item = visibleCommands[index]; if (!item) return;
-    input.value = '/' + item.name + (item.argument || !item.builtin ? ' ' : ''); commandMenu.hidden = true;
-    input.focus(); resizeInput(); update();
+    if (item.skill) {
+      const end = input.selectionStart, before = input.value.slice(0, end);
+      const match = /\$[a-z0-9-]*$/i.exec(before); if (!match) return;
+      const after = input.value.slice(end).replace(/^[a-z0-9-]*/i, '');
+      const replacement = '$' + item.name + (after && /^[\s.,!?;:)]/.test(after) ? '' : ' ');
+      input.value = before.slice(0, match.index) + replacement + after;
+      input.focus(); input.setSelectionRange(match.index + replacement.length, match.index + replacement.length);
+    } else { input.value = '/' + item.name + (item.argument || !item.builtin ? ' ' : ''); input.focus(); }
+    skillLookup++; commandMenu.hidden = true; resizeInput(); update();
     if (item.builtin && !item.argument) form.requestSubmit();
   }
-  const dismissComposerMenus = event => { if (!form.contains(event.target)) commandMenu.hidden = true; };
+  const dismissComposerMenus = event => { if (!form.contains(event.target)) { skillLookup++; commandMenu.hidden = true; } };
   document.addEventListener('pointerdown', dismissComposerMenus); tab.unsubs.push(() => document.removeEventListener('pointerdown', dismissComposerMenus));
   form.querySelector('.chat-git').addEventListener('click', event => {
     const trigger = event.currentTarget;
@@ -2017,10 +2084,15 @@ function initChatPane(ws, tab) {
     (historyFragment || messages).append(row);
     let displayContent = content || ''; const filePaths = [];
     if (role === 'user') {
+      const skill = /^Use the following Synthesis skill for this request\.[\s\S]*?\n\n<skill name="([a-z0-9-]+)">/.exec(displayContent);
+      const requestAt = skill ? displayContent.lastIndexOf('\n\nUser request:\n') : -1;
+      if (requestAt >= 0) displayContent = '$' + skill[1] + ' ' + displayContent.slice(requestAt + '\n\nUser request:\n'.length);
+      if (displayContent.startsWith('Use the following Synthesis skills for this request.')) { const at = displayContent.lastIndexOf('\n\nUser request:\n'); if (at >= 0) displayContent = displayContent.slice(at + '\n\nUser request:\n'.length); }
       const match = displayContent.match(/(?:^|\n\n)Attached files and folders \(use these paths\):\n((?:- "[^\n]*"(?:\n|$))+)$/);
       if (match) { for (const line of match[1].trim().split('\n')) { try { const path = JSON.parse(line.slice(2)); if (typeof path === 'string') filePaths.push(path); } catch {} } if (filePaths.length) displayContent = displayContent.slice(0, match.index); }
     }
     body.raw = displayContent; renderText(body, displayContent);
+    if (role === 'user') { const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); for (const node of nodes) if (!node.parentElement.closest('a, code, pre')) node.replaceWith(skillTextFragment(node.nodeValue)); }
     const previews = document.createElement('div'); previews.className = 'chat-message-attachments';
     for (const path of filePaths) { const chip = document.createElement('span'); chip.className = 'chat-message-file'; chip.textContent = path.split('/').filter(Boolean).pop() || path; chip.title = path; previews.append(chip); }
     for (const item of images) {
@@ -2161,10 +2233,14 @@ function initChatPane(ws, tab) {
     else if (name === 'copy') { const text = [...messages.querySelectorAll('.chat-message.assistant .chat-message-content')].at(-1)?.raw; if (text) navigator.clipboard.writeText(text).catch(() => {}); }
     update(); return true;
   }
-  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; if (!attachments.length && !pastedImages.length && executeBuiltin(value)) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified, settled: false, snoozedUntil: 0, done: false }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
-  function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
-  input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); resizeInput(); update(); });
-  input.addEventListener('keydown', e => { if (!commandMenu.hidden && ['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + visibleCommands.length) % visibleCommands.length; renderCommandMenu(); return; } if (!commandMenu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); commandMenu.hidden = true; return; } if (!commandMenu.hidden && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chooseCommand(commandIndex); return; } if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  form.addEventListener('submit', e => { e.preventDefault(); const value = input.value.trim(); if ((!value && !attachments.length && !pastedImages.length) || busy || !ready || changing || pendingImages) return; if (!attachments.length && !pastedImages.length && executeBuiltin(value)) return; const paths = [...attachments]; const images = pastedImages.map(({ type, mimeType, data }) => ({ type, mimeType, data })); const context = paths.length ? 'Attached files and folders (use these paths):\n' + paths.map(path => '- ' + JSON.stringify(path)).join('\n') : ''; const message = [value, context].filter(Boolean).join('\n\n') || 'Please look at the attached image.'; const firstTurn = !tab.hasConversation; add('user', message, images); turnHasOutput = false; turnHasError = false; turnCount++; beginTimer(); tab.hasConversation = true; if (tab.sessionPath) rememberConversation(tab.sessionPath); tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { modified: tab.modified, settled: false, snoozedUntil: 0, done: false }); if (tab.title === 'Chat') setPaneTitle(tab, (value || 'New chat').replace(/\s+/g, ' ').slice(0, 45)); if (firstTurn && value) { const chosen = models.find(m => modelKey(m) === currentModel); window.mux.chat.title(chatCwd, value, chosen ? { provider: chosen.provider, id: chosen.id } : null).then(title => { if (!title || tab.disposed) return; setPaneTitle(tab, title); setChatMeta(tab.sessionPath || tab.id, { title }); command('set_session_name', { name: title }); saveWorkspaces(); }).catch(() => {}); } input.value = ''; attachments = []; pastedImages = []; renderAttachments(); updateInputMirror(); resizeInput(); busy = true; update(); command('prompt', { message, ...(images.length ? { images } : {}) }); });
+  function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; updateInputMirror(); }
+  function updateInputMirror() { inputMirror.style.width = input.clientWidth + 'px'; inputMirror.replaceChildren(skillTextFragment(input.value)); inputMirror.scrollTop = input.scrollTop; inputMirror.scrollLeft = input.scrollLeft; }
+  input.addEventListener('scroll', () => { inputMirror.scrollTop = input.scrollTop; inputMirror.scrollLeft = input.scrollLeft; });
+  input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); updateInputMirror(); const lookup = ++skillLookup; if (/\$[a-z0-9-]*$/i.test(input.value.slice(0, input.selectionStart))) refreshSkills().then(() => { if (!tab.disposed && lookup === skillLookup) { updateInputMirror(); renderCommandMenu(); } }); resizeInput(); update(); });
+  input.addEventListener('click', renderCommandMenu);
+  input.addEventListener('keyup', event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) renderCommandMenu(); });
+  input.addEventListener('keydown', e => { if (!commandMenu.hidden && visibleCommands.length && ['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + visibleCommands.length) % visibleCommands.length; renderCommandMenu(); return; } if (!commandMenu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skillLookup++; commandMenu.hidden = true; return; } if (!commandMenu.hidden && visibleCommands.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); chooseCommand(commandIndex); return; } if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   update();
   tab.startChat = () => {
     if (tab.disposed || tab.chatStarted) return;
@@ -2712,6 +2788,8 @@ async function refreshScheduledTasks() {
 function showScheduleForm(task = null) {
   scheduleEditing = task; const form = $('#scheduled-form'); form.hidden = false; $('#scheduled-new').hidden = true; $('#scheduled-error').textContent = '';
   $('#scheduled-title').value = task?.title || ''; $('#scheduled-prompt').value = task?.prompt || ''; $('#scheduled-time').value = task?.time || '09:00'; $('#scheduled-frequency').value = task?.frequency || 'daily'; $('#scheduled-day').value = String(task?.day ?? 1); $('#scheduled-day-label').hidden = $('#scheduled-frequency').value !== 'weekly';
+  const skillSelect = $('#scheduled-skill'); skillSelect.replaceChildren(new Option('None', ''));
+  refreshSkills().then(() => { for (const skill of synthesisSkills) skillSelect.add(new Option(skill.name, skill.name)); if (task?.skillId && !synthesisSkills.some(skill => skill.name === task.skillId)) skillSelect.add(new Option(task.skillId + ' (unavailable)', task.skillId)); skillSelect.value = task?.skillId || ''; });
   const select = $('#scheduled-project'); select.replaceChildren();
   const scratch = state.workspaces.find(ws => ws.id === task?.projectId && isScratch(ws)) || (activeWs() && isScratch(activeWs()) ? activeWs() : state.workspaces.find(isScratch));
   const available = [...(scratch ? [scratch] : []), ...state.workspaces.filter(ws => !isScratch(ws))];
@@ -2728,7 +2806,7 @@ $('#scheduled-form').addEventListener('submit', async event => {
   event.preventDefault(); const button = event.submitter, ws = state.workspaces.find(item => item.id === $('#scheduled-project').value);
   if (!ws) { $('#scheduled-error').textContent = 'Choose a project.'; return; }
   const active = activeWs()?.panes[activeWs().activePaneIdx]?.activeTab;
-  const task = { id: scheduleEditing?.id, title: $('#scheduled-title').value, prompt: $('#scheduled-prompt').value, cwd: ws.cwd, projectId: ws.id, frequency: $('#scheduled-frequency').value, day: Number($('#scheduled-day').value), time: $('#scheduled-time').value, model: scheduleEditing?.model || active?.getGitModel?.() || null };
+  const task = { id: scheduleEditing?.id, title: $('#scheduled-title').value, prompt: $('#scheduled-prompt').value, skillId: $('#scheduled-skill').value, cwd: ws.cwd, projectId: ws.id, frequency: $('#scheduled-frequency').value, day: Number($('#scheduled-day').value), time: $('#scheduled-time').value, model: scheduleEditing?.model || active?.getGitModel?.() || null };
   button.disabled = true; $('#scheduled-error').textContent = '';
   try {
     await window.mux.app.allowRoot(ws.cwd); const result = await window.mux.schedules.save(task);
@@ -3433,7 +3511,10 @@ async function previewFile(full, name) {
     code.classList.toggle('wrap', state.previewWrap);
   });
 
-  head.append(back, nameEl, wrapBtn);
+  const isMarkdown = /\.(?:md|markdown)$/i.test(name);
+  let formatted = isMarkdown;
+  const mode = document.createElement('button'); mode.type = 'button'; mode.className = 'ghost-btn'; mode.textContent = 'Raw'; mode.title = 'Show raw Markdown';
+  if (isMarkdown && res.ok) head.append(back, nameEl, mode, wrapBtn); else head.append(back, nameEl, wrapBtn);
 
   const code = document.createElement('div');
   code.id = 'preview-code';
@@ -3443,7 +3524,20 @@ async function previewFile(full, name) {
   if (res.ok) {
     const allLines = res.text.split('\n');
     const shown = allLines.slice(0, limits.maxLines);
-    renderCodeLines(code, shown, name);
+    const showContent = () => {
+      code.replaceChildren(); code.classList.toggle('markdown-preview', formatted);
+      wrapBtn.hidden = formatted;
+      if (formatted) {
+        code.innerHTML = chatMarkup(shown.join('\n'));
+        for (const link of code.querySelectorAll('a[href]')) link.addEventListener('click', event => {
+          event.preventDefault(); const target = link.getAttribute('href'); const ws = activeWs(), pane = ws?.panes[ws.activePaneIdx];
+          if (ws && pane) openChatTarget(ws, pane, dirname(full), target);
+        });
+      } else renderCodeLines(code, shown, name);
+      mode.textContent = formatted ? 'Raw' : 'Formatted'; mode.title = formatted ? 'Show raw Markdown' : 'Show formatted Markdown';
+    };
+    mode.addEventListener('click', () => { formatted = !formatted; showContent(); });
+    showContent();
     let meta = `${name} · ${fmtSize(res.size)} · ${allLines.length.toLocaleString()} lines`;
     if (allLines.length > limits.maxLines) {
       meta += ` · preview limited to ${limits.maxLines.toLocaleString()} lines`;
@@ -4157,6 +4251,7 @@ function openSettings(tab = 'appearance') {
   if (!systemFontsLoaded) loadAvailableFonts();
   renderSettings();
   setSettingsTab(tab);
+  if (tab === 'skills') renderSkillSettings();
   $('#settings-backdrop').classList.remove('hidden');
   requestBrowserSync();
 }
@@ -4338,7 +4433,7 @@ $('#settings-backdrop').addEventListener('click', (e) => {
 });
 $('#settings-tabs').addEventListener('click', (e) => {
   const tab = e.target.closest('[data-settings-tab]');
-  if (tab) setSettingsTab(tab.dataset.settingsTab);
+  if (tab) { setSettingsTab(tab.dataset.settingsTab); if (tab.dataset.settingsTab === 'skills') renderSkillSettings(); }
 });
 $('#theme-presets').addEventListener('click', event => {
   const button = event.target.closest('[data-theme-preset]');

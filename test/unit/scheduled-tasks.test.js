@@ -68,3 +68,16 @@ test('a stale incomplete scheduler lock does not block future tasks', async t =>
   const old = new Date(Date.now() - 600000); fs.utimesSync(lock, old, old);
   assert.deepEqual(await runDueTasks(dir), { ran: 0 });
 });
+
+test('scheduled skills resolve at run time and missing skills fail before launch', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-scheduled-skill-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'skills', 'writing'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills', 'writing', 'SKILL.md'), '---\nname: writing\ndescription: Writing help\n---\nBe concise.');
+  const fake = path.join(dir, 'fake-pi');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nconst rl=require('readline').createInterface({input:process.stdin});rl.on('line',line=>{const c=JSON.parse(line);if(c.type==='prompt'){if(!c.message.includes('Be concise.')||!c.message.includes('Draft text'))process.exit(2);console.log(JSON.stringify({type:'agent_settled'}));}if(c.type==='get_state')console.log(JSON.stringify({type:'response',command:'get_state',success:true,data:{sessionFile:'/tmp/result.jsonl'}}));});`, { mode: 0o700 });
+  const task = { title: 'Task', prompt: 'Draft text', cwd: dir, skillRoot: dir, skillId: 'writing' };
+  assert.equal((await runPi(task, { executable: fake, timeoutMs: 5000 })).ok, true);
+  fs.rmSync(path.join(dir, 'skills', 'writing'), { recursive: true });
+  assert.match((await runPi(task, { executable: fake, timeoutMs: 5000 })).error, /unavailable/);
+});

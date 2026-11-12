@@ -20,6 +20,8 @@ test('document previews resolve paths safely and render Markdown with an isolate
   const response = await documents.handle({ url: prepared.url });
   assert.equal(response.status, 200); assert.match(await response.text(), /<strong>Visible<\/strong>/);
   assert.match(response.headers.get('content-security-policy'), /script-src 'none'/);
+  const raw = await documents.handle({ url: prepared.url + '?raw=1' });
+  assert.match(await raw.text(), /\*\*Visible\*\*/);
   assert.equal((await documents.handle({ url: 'synthesis-doc://unknown/file.md' })).status, 404);
   await assert.rejects(documents.prepare(root, '../outside/secret.md'));
   await assert.rejects(documents.prepare(root, 'link.md'));

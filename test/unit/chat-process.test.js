@@ -20,7 +20,8 @@ test('new chats use unique Pi session IDs, while saved chats resume their path',
   manager.start('ws-1-p1', '/tmp');
   manager.stop('ws-1-p1');
   manager.start('ws-1-p1', '/tmp');
-  manager.start('other', '/tmp', '/tmp/saved-session.jsonl');
+  manager.start('other', '/tmp', '/tmp/saved-session.jsonl', '/tmp/synthesis-skills');
+  assert.match(starts[2][starts[2].indexOf('--append-system-prompt') + 1], /synthesis-skills/);
   const first = starts[0][starts[0].indexOf('--session-id') + 1];
   const second = starts[1][starts[1].indexOf('--session-id') + 1];
   assert.match(first, /^[a-f0-9-]{36}$/);

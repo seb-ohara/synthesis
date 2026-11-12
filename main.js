@@ -193,22 +193,31 @@ ipcMain.handle('chat:start', async (event, { id, cwd, sessionPath }) => {
   if (!dir) return { ok: false, error: 'Workspace folder is unavailable' };
   if (sessionPath && !(await validChatSession(dir, sessionPath))) return { ok: false, error: 'Saved chat not found in this workspace' };
   if (!win || win.isDestroyed() || event.sender !== win.webContents) return { ok: false, error: 'The application window was closed.' };
-  try { chatManager.start(id, dir, sessionPath); return { ok: true }; }
+  try { chatManager.start(id, dir, sessionPath, path.join(getSupportDir(), 'skills')); return { ok: true }; }
   catch (error) { return { ok: false, error: error.message }; }
 });
 ipcMain.on('chat:command', (_e, { id, message }) => {
-  if (validSessionId(id) && message && typeof message.type === 'string') chatManager.command(id, message);
+  if (!validSessionId(id) || !message || typeof message.type !== 'string') return;
+  if (message.type === 'prompt' && typeof message.message === 'string') {
+    try { message = { ...message, message: skillTools.expandMentions(message.message, skillLibrary()) }; } catch (error) { win.webContents.send('chat:event', { id, event: { type: 'response', command: 'prompt', success: false, error: error.message } }); return; }
+  }
+  chatManager.command(id, message);
 });
 ipcMain.on('chat:stop', (_e, id) => { if (validSessionId(id)) chatManager.stop(id); });
 
 /* ---------------- Recurring tasks (per-user macOS launch agent) ---------------- */
+const skillTools = require('./lib/skills');
+const skillLibrary = () => skillTools.createSkills(path.join(getSupportDir(), 'skills'), path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'skills'));
+ipcMain.handle('skills:list', () => { try { const directory = path.join(getSupportDir(), 'skills'); pathGuard.addAllowedRoot(directory); return { ok: true, skills: skillLibrary().list(), directory }; } catch (error) { return { ok: false, error: error.message }; } });
+ipcMain.handle('skills:pi-list', () => { try { return { ok: true, skills: skillLibrary().availableImports() }; } catch (error) { return { ok: false, error: error.message }; } });
+ipcMain.handle('skills:import', (_e, source) => { try { return { ok: true, name: skillLibrary().importSkill(source) }; } catch (error) { return { ok: false, error: error.message }; } });
 const scheduledTasks = require('./lib/scheduled-tasks');
 const scheduledAgentLabel = 'com.seb-ohara.synthesis.scheduled-tasks';
 function launchctl(args) { return new Promise((resolve, reject) => execFile('/bin/launchctl', args, { timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error((stderr || error.message).trim())) : resolve(stdout))); }
 let scheduledAgentPending = null, scheduledAgentError = '';
 async function installScheduledAgent() {
   const dir = getSupportDir(), libDir = path.join(dir, 'lib'); fs.mkdirSync(libDir, { recursive: true, mode: 0o700 });
-  for (const [source, destination] of [[path.join(__dirname, 'scheduler-worker.js'), path.join(dir, 'scheduler-worker.js')], [path.join(__dirname, 'lib/scheduled-tasks.js'), path.join(libDir, 'scheduled-tasks.js')]]) {
+  for (const [source, destination] of [[path.join(__dirname, 'scheduler-worker.js'), path.join(dir, 'scheduler-worker.js')], [path.join(__dirname, 'lib/scheduled-tasks.js'), path.join(libDir, 'scheduled-tasks.js')], [path.join(__dirname, 'lib/skills.js'), path.join(libDir, 'skills.js')]]) {
     const tmp = destination + '.' + randomUUID() + '.tmp'; fs.copyFileSync(source, tmp); fs.chmodSync(tmp, 0o600); fs.renameSync(tmp, destination);
   }
   if (process.env.SYNTHESIS_SCHEDULER_TEST === '1') return;
@@ -252,6 +261,7 @@ ipcMain.handle('scheduled:save', async (_event, input) => {
     const task = scheduledTasks.validateTask(input), cwd = pathGuard.resolveAllowed(task.cwd);
     if (!cwd || !fs.statSync(cwd).isDirectory()) throw new Error('The project folder is unavailable.');
     task.cwd = cwd;
+    if (task.skillId) skillLibrary().resolve(task.skillId);
     const dir = getSupportDir(), tasks = scheduledTasks.readTasks(dir);
     const existing = input.id ? tasks.find(item => item.id === input.id) : null;
     if (input.id && !existing) throw new Error('Scheduled task no longer exists.');

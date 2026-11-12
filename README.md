@@ -53,3 +53,11 @@ npm run test:integration  # Electron integration tests
 Integration tests use temporary user-data directories. Local application state, session logs, dependencies, and generated builds are excluded from the repository by `.gitignore`.
 
 The main Electron process is in `main.js`, the renderer in `renderer.js`, `index.html`, and `styles.css`, and shared functionality lives in `lib/`. The `test/` directory contains unit and integration tests; `design-explorations/` contains interface experiments.
+
+### Synthesis skills
+
+Open **Settings → Skills** to see the Synthesis skill library and import individual skills from Pi's global `skills` directory (`$PI_CODING_AGENT_DIR/skills`, or `~/.pi/agent/skills`). Imports are copies; a skill already in the library is never overwritten. Pi's automatic skill discovery is disabled in Synthesis chats and scheduled tasks. Pi package and project skill directories are not currently scanned for import.
+
+To use a skill, type `$name` in a chat message and select the skill from the menu, or select it in the scheduled task form. Scheduled tasks load the current library version each time they run and report an error if it has been removed. When you ask the agent to create a skill, it is instructed to use the Synthesis library by default. Skills may refer to supporting files in their own directory, provided the agent can access them.
+
+The library path is displayed in Settings. To add a skill manually, create a folder named after the skill containing a `SKILL.md` file with `name` and `description` in YAML frontmatter. Names use lowercase letters, numbers and hyphens. The description must be on a single line. Supporting files can live alongside `SKILL.md`. Skills can contain instructions or executable resources; review a skill before importing and using it.

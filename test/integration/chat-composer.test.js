@@ -86,7 +86,7 @@ test('Pi commands and working/settled groups remain usable', async t => {
   await page.waitForFunction(() => !document.querySelector('[data-section="working"] .chat-card'));
   assert.equal(await page.locator('.chat-card .ws-status.done').innerText(), 'Done');
   assert.equal(await page.locator('.chat-card .ws-status.done .ws-status-indicator').innerText(), '');
-  assert.equal(await page.locator('.chat-card .ws-status.done').evaluate(element => getComputedStyle(element).color), 'rgb(131, 168, 118)');
+  assert.equal(await page.locator('.chat-card .ws-status.done').evaluate(element => getComputedStyle(element).color), 'rgb(2, 195, 134)');
   await page.locator('.chat-card').filter({ hasText: 'A useful title' }).click();
   assert.equal(await page.locator('.chat-card .ws-status.done').count(), 0);
   const card = page.locator('.chat-card').filter({ hasText: 'A useful title' }); await card.hover(); await card.locator('.conversation-settle').click();

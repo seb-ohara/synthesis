@@ -1,0 +1,53 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { _electron } = require('playwright');
+const ROOT = path.resolve(__dirname, '../..');
+
+test('imported skills appear in chat and Markdown previews switch modes', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-skill-ui-'));
+  const userData = path.join(temp, 'data'), pi = path.join(temp, 'pi');
+  fs.mkdirSync(userData); fs.mkdirSync(path.join(pi, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(pi, 'skills', 'Writing.md'), '---\nname: writing\ndescription: Help with writing\n---\n# Writing guide\n**Be clear**');
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData, PI_CODING_AGENT_DIR: pi }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+  const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
+  const input = page.locator('.ws-view.active .chat-composer textarea').first();
+  await input.fill('prefix$');
+  await page.locator('.chat-command-empty', { hasText: 'No skills' }).waitFor();
+  await input.press('ArrowDown'); await input.press('Escape');
+  assert.equal(await input.inputValue(), 'prefix$');
+  await page.click('#settings-btn'); await page.click('[data-settings-tab="skills"]');
+  await page.locator('#skills-import-list button', { hasText: 'Import' }).click();
+  await page.locator('#skills-list strong', { hasText: 'writing' }).waitFor();
+  await page.click('#settings-done');
+  await input.fill('prefix$writ after');
+  await input.evaluate(el => { el.setSelectionRange(11, 11); el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  await page.locator('.chat-command-option', { hasText: '$writing' }).click();
+  assert.equal(await input.inputValue(), 'prefix$writing after');
+  const mention = page.locator('.chat-input-mirror .chat-skill-mention');
+  assert.equal(await mention.count(), 1);
+  assert.equal(await mention.locator('svg').count(), 1);
+  assert.equal(await mention.evaluate(el => getComputedStyle(el).color), await mention.evaluate(el => { const probe = document.createElement('span'); probe.style.color = 'var(--accent)'; el.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; }));
+  await input.fill('prefix$unknown');
+  await page.locator('.chat-command-empty', { hasText: 'No matching skills' }).waitFor();
+  await page.click('#settings-btn'); await page.click('[data-settings-tab="skills"]');
+  await page.locator('#skills-list button', { hasText: 'View' }).click();
+  await page.waitForFunction(() => document.querySelector('.browser-url')?.value.includes('SKILL.md'));
+  const content = await app.evaluate(async ({ BrowserWindow }) => {
+    let view; for (let i = 0; i < 100 && !view; i++) { view = BrowserWindow.getAllWindows()[0].contentView.children.find(child => child.webContents.getURL().includes('SKILL.md')); if (!view) await new Promise(resolve => setTimeout(resolve, 10)); }
+    if (!view) return '';
+    if (view.webContents.isLoading()) await new Promise(resolve => view.webContents.once('did-stop-loading', resolve));
+    return view.webContents.executeJavaScript('document.body.innerText');
+  });
+  assert.match(content, /Be clear/);
+  const url = await page.locator('.browser-url').inputValue();
+  assert.match(url, /SKILL.md/);
+  await app.evaluate(async ({ BrowserWindow }) => { const view = BrowserWindow.getAllWindows()[0].contentView.children.find(child => child.webContents.getURL().includes('SKILL.md')); await view.webContents.executeJavaScript("document.querySelector('.mode').click()"); });
+  const raw = await app.evaluate(async ({ BrowserWindow }) => { let view; for (let i = 0; i < 200 && !view; i++) { view = BrowserWindow.getAllWindows()[0].contentView.children.find(child => child.webContents.getURL().includes('raw=1')); if (!view) await new Promise(resolve => setTimeout(resolve, 10)); } if (!view) return ''; if (view.webContents.isLoading()) await new Promise(resolve => view.webContents.once('did-stop-loading', resolve)); return view.webContents.executeJavaScript('document.body.innerText'); });
+  assert.match(raw, /\*\*Be clear\*\*/);
+});

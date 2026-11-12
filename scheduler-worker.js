@@ -7,12 +7,16 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { randomUUID } = require('crypto');
 const store = require('./lib/scheduled-tasks');
+const skills = require('./lib/skills');
 
 function runPi(task, { executable, timeoutMs = 90 * 60 * 1000 } = {}) {
   return new Promise(resolve => {
+    let prompt = task.prompt;
+    const skillRoot = path.join(task.skillRoot || process.argv[2] || task.cwd, 'skills');
+    try { prompt = skills.expandMentions(prompt, skills.createSkills(skillRoot, ''), task.skillId); } catch (error) { resolve({ ok: false, error: error.message }); return; }
     const local = path.join(os.homedir(), '.local/bin/pi');
     const bin = executable || (fs.existsSync(local) ? local : 'pi');
-    const args = ['--mode', 'rpc', '--session-id', randomUUID()];
+    const args = ['--mode', 'rpc', '--no-skills', '--append-system-prompt', skills.creationGuidance(skillRoot), '--session-id', randomUUID()];
     if (task.model) args.push('--provider', task.model.provider, '--model', task.model.id);
     let child;
     try { child = spawn(bin, args, { cwd: task.cwd, env: { ...process.env, PATH: [path.join(os.homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':') }, stdio: ['pipe', 'pipe', 'pipe'] }); }
@@ -42,7 +46,7 @@ function runPi(task, { executable, timeoutMs = 90 * 60 * 1000 } = {}) {
     child.on('error', error => finish({ ok: false, error: error.message }));
     child.on('close', code => finish({ ok: false, error: `The agent stopped before completing the task (exit ${code ?? 'unknown'}).` }));
     send({ type: 'set_session_name', name: task.title });
-    send({ type: 'prompt', message: task.prompt });
+    send({ type: 'prompt', message: prompt });
   });
 }
 function acquireLock(dir) {
@@ -77,7 +81,7 @@ async function runDueTasks(dir, { now = Date.now(), execute = runPi } = {}) {
     async function runTask(task) {
       const latest = store.readTasks(dir).find(item => item.id === task.id);
       if (!latest?.enabled || latest.notBefore !== task.notBefore) { const state = runs[task.id]; state.status = 'cancelled'; state.finishedAt = Date.now(); store.saveRuns(dir, runs); return; }
-      let result; try { result = await execute(task); } catch (error) { result = { ok: false, error: error.message }; }
+      let result; try { result = await execute({ ...task, skillRoot: dir }); } catch (error) { result = { ok: false, error: error.message }; }
       const state = runs[task.id]; state.status = result.ok ? 'completed' : 'failed'; state.finishedAt = Date.now(); state.error = String(result.error || '').slice(0, 1000);
       const entry = { status: state.status, startedAt: state.startedAt, finishedAt: state.finishedAt, sessionPath: typeof result.sessionPath === 'string' ? result.sessionPath : '', error: state.error, projectId: task.projectId, cwd: task.cwd, title: task.title };
       if (entry.sessionPath) fs.appendFileSync(path.join(dir, 'scheduled-task-sessions.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
