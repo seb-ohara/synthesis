@@ -3,7 +3,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('mux', {
   git: { status: cwd => ipcRenderer.invoke('git:status', cwd), review: (cwd, scope, ref) => ipcRenderer.invoke('git:review', { cwd, scope, ref }), action: (cwd, action, data) => ipcRenderer.invoke('git:action', { cwd, action, data }), github: (cwd, action) => ipcRenderer.invoke('git:github', { cwd, action }), commitAuto: (cwd, action, model, expectedBranch) => ipcRenderer.invoke('git:commitAuto', { cwd, action, model, expectedBranch }), openFinder: cwd => ipcRenderer.invoke('git:openFinder', cwd) },
   pi: { checkUpdate: () => ipcRenderer.invoke('pi:check-update'), update: () => ipcRenderer.invoke('pi:update') },
-  skills: { list: () => ipcRenderer.invoke('skills:list'), piList: () => ipcRenderer.invoke('skills:pi-list'), import: source => ipcRenderer.invoke('skills:import', source) },
+  skills: {
+    list: () => ipcRenderer.invoke('skills:list'), piList: () => ipcRenderer.invoke('skills:pi-list'), import: source => ipcRenderer.invoke('skills:import', source),
+    onChanged: cb => { const handler = () => cb(); ipcRenderer.on('skills:changed', handler); return () => ipcRenderer.removeListener('skills:changed', handler); },
+  },
   schedules: { list: () => ipcRenderer.invoke('scheduled:list'), discover: offset => ipcRenderer.invoke('scheduled:discover', offset), save: task => ipcRenderer.invoke('scheduled:save', task), toggle: id => ipcRenderer.invoke('scheduled:toggle', id), remove: id => ipcRenderer.invoke('scheduled:delete', id) },
   fonts: { list: (includeSystem) => ipcRenderer.invoke('fonts:list', includeSystem), import: () => ipcRenderer.invoke('fonts:import') },
   chat: {

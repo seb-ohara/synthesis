@@ -25,6 +25,7 @@ const electronVersion = require(path.join(root, 'node_modules', 'electron', 'pac
 const IGNORE = [
   /^\/dist($|\/)/,
   /^\/data($|\/)/,
+  /^\/(?:tmp|output|docs)($|\/)/,
   /^\/design-explorations($|\/)/,
   /^\/synthesis-logo-variations($|\/)/,
   /^\/test($|\/)/,

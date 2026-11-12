@@ -207,6 +207,7 @@ ipcMain.on('chat:stop', (_e, id) => { if (validSessionId(id)) chatManager.stop(i
 
 /* ---------------- Recurring tasks (per-user macOS launch agent) ---------------- */
 const skillTools = require('./lib/skills');
+let stopSkillsWatcher = null;
 const skillLibrary = () => skillTools.createSkills(path.join(getSupportDir(), 'skills'), path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'), 'skills'));
 ipcMain.handle('skills:list', () => { try { const directory = path.join(getSupportDir(), 'skills'); pathGuard.addAllowedRoot(directory); return { ok: true, skills: skillLibrary().list(), directory }; } catch (error) { return { ok: false, error: error.message }; } });
 ipcMain.handle('skills:pi-list', () => { try { return { ok: true, skills: skillLibrary().availableImports() }; } catch (error) { return { ok: false, error: error.message }; } });
@@ -738,6 +739,11 @@ app.whenReady().then(() => {
   getSupportDir();
   try { if (scheduledTasks.readTasks(getSupportDir()).some(task => task.enabled)) ensureScheduledAgent().catch(error => console.error('Scheduled tasks:', error.message)); } catch (error) { console.error('Scheduled tasks:', error.message); }
   createWindow();
+  try {
+    stopSkillsWatcher = skillTools.watchSkills(path.join(getSupportDir(), 'skills'), () => {
+      if (win && !win.isDestroyed()) win.webContents.send('skills:changed');
+    });
+  } catch (error) { console.error('Skill library watcher:', error.message); }
   connectDaemon(); // warm up early; sessions may be waiting to reattach
 });
 
@@ -781,6 +787,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  stopSkillsWatcher?.();
   chatManager.stopAll();
   browserManager.disposeAll();
   if (dirWatcher) { try { dirWatcher.close(); } catch { /* noop */ } dirWatcher = null; }

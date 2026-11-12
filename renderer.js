@@ -1727,14 +1727,21 @@ function warmChatMarkup(messages) {
 }
 
 let synthesisSkills = [];
-let skillsPending = null;
+let skillsPending = null, skillsRevision = 0;
 function refreshSkills() {
-  if (!skillsPending) skillsPending = window.mux.skills.list().then(result => {
+  if (!skillsPending) skillsPending = (async () => {
+    let revision, result;
+    do {
+      revision = skillsRevision;
+      result = await window.mux.skills.list();
+    } while (revision !== skillsRevision);
     if (result.ok) synthesisSkills = result.skills;
+    if (result.ok) window.dispatchEvent(new Event('synthesis:skills-updated'));
     return result;
-  }).finally(() => { skillsPending = null; });
+  })().finally(() => { skillsPending = null; });
   return skillsPending;
 }
+window.mux.skills.onChanged(() => { skillsRevision++; refreshSkills().catch(() => {}); });
 async function renderSkillSettings() {
   const [library, imports] = await Promise.all([refreshSkills(), window.mux.skills.piList()]);
   const list = $('#skills-list'), available = $('#skills-import-list'), status = $('#skills-status');
@@ -1820,7 +1827,10 @@ function initChatPane(ws, tab) {
     { name: 'copy', description: 'Copy the last response', builtin: true },
   ];
   let externalCommands = [], visibleCommands = [], commandIndex = 0, skillLookup = 0;
-  refreshSkills().then(() => { updateInputMirror(); if (!commandMenu.hidden) renderCommandMenu(); });
+  const skillsUpdated = () => { if (!tab.disposed) { updateInputMirror(); if (!commandMenu.hidden) renderCommandMenu(); } };
+  window.addEventListener('synthesis:skills-updated', skillsUpdated);
+  tab.unsubs.push(() => window.removeEventListener('synthesis:skills-updated', skillsUpdated));
+  refreshSkills().catch(() => {});
   function renderCommandMenu() {
     const before = input.value.slice(0, input.selectionStart);
     const skillMatch = /\$([a-z0-9-]*)$/i.exec(before);
@@ -2231,7 +2241,7 @@ function initChatPane(ws, tab) {
         else if (text) { turnHasOutput = true; add('assistant', text); }
       }
     }
-    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) { tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted, modified: tab.modified }); } busy = false; finishTimer(); setStatusText('Thinking'); command('get_state'); update(); refreshProjectChats(projectWorkspace()); }
+    else if (event.type === 'agent_settled') { if (busy && !event.aborted && !turnHasOutput && !turnHasError) add('error', 'The agent finished without a text response. Try again or check the selected model.'); if (busy) { tab.modified = Date.now(); setChatMeta(tab.sessionPath || tab.id, { done: !event.aborted, modified: tab.modified }); } busy = false; finishTimer(); setStatusText('Thinking'); command('get_state'); update(); refreshProjectChats(projectWorkspace()); refreshSkills().catch(() => {}); }
     else if (event.type === 'extension_ui_request') {
       let response = { type: 'extension_ui_response', id: event.id };
       if (event.method === 'confirm') response.confirmed = window.confirm(event.title || 'Confirm');
@@ -2266,8 +2276,15 @@ function initChatPane(ws, tab) {
   function resizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; updateInputMirror(); }
   function updateInputMirror() { inputMirror.style.width = input.clientWidth + 'px'; inputMirror.replaceChildren(skillTextFragment(input.value)); inputMirror.scrollTop = input.scrollTop; inputMirror.scrollLeft = input.scrollLeft; }
   input.addEventListener('scroll', () => { inputMirror.scrollTop = input.scrollTop; inputMirror.scrollLeft = input.scrollLeft; });
-  input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); updateInputMirror(); const lookup = ++skillLookup; if (/\$[a-z0-9-]*$/i.test(input.value.slice(0, input.selectionStart))) refreshSkills().then(() => { if (!tab.disposed && lookup === skillLookup) { updateInputMirror(); renderCommandMenu(); } }); resizeInput(); update(); });
-  input.addEventListener('click', renderCommandMenu);
+  function refreshComposerSkills() {
+    const lookup = ++skillLookup;
+    if (/\$[a-z0-9-]*$/i.test(input.value.slice(0, input.selectionStart))) refreshSkills().then(() => {
+      if (!tab.disposed && lookup === skillLookup && document.activeElement === input) { updateInputMirror(); renderCommandMenu(); }
+    }).catch(() => {});
+  }
+  input.addEventListener('input', () => { commandIndex = 0; renderCommandMenu(); updateInputMirror(); refreshComposerSkills(); resizeInput(); update(); });
+  input.addEventListener('click', () => { renderCommandMenu(); refreshComposerSkills(); });
+  input.addEventListener('focus', refreshComposerSkills);
   input.addEventListener('keyup', event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) renderCommandMenu(); });
   input.addEventListener('keydown', e => { if (!commandMenu.hidden && visibleCommands.length && ['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + visibleCommands.length) % visibleCommands.length; renderCommandMenu(); return; } if (!commandMenu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skillLookup++; commandMenu.hidden = true; return; } if (!commandMenu.hidden && visibleCommands.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); chooseCommand(commandIndex); return; } if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   update();

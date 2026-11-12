@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { _electron } = require('playwright');
 const ROOT = path.resolve(__dirname, '../..');
+const APP_OPTIONS = process.env.SYNTHESIS_TEST_EXECUTABLE ? { executablePath: process.env.SYNTHESIS_TEST_EXECUTABLE, args: [] } : { args: [ROOT] };
 
 test('imported skills appear in chat and Markdown previews switch modes', async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-skill-ui-'));
@@ -13,7 +14,7 @@ test('imported skills appear in chat and Markdown previews switch modes', async 
   fs.mkdirSync(userData); fs.mkdirSync(path.join(pi, 'skills'), { recursive: true });
   fs.writeFileSync(path.join(pi, 'skills', 'Writing.md'), '---\nname: writing\ndescription: Help with writing\n---\n# Writing guide\n**Be clear**');
   const env = { ...process.env, SYNTHESIS_USER_DATA: userData, PI_CODING_AGENT_DIR: pi }; delete env.ELECTRON_RUN_AS_NODE;
-  const app = await _electron.launch({ args: [ROOT], cwd: ROOT, env });
+  const app = await _electron.launch({ ...APP_OPTIONS, cwd: ROOT, env });
   t.after(async () => { await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
   const page = await app.firstWindow(); await page.waitForSelector('.ws-view.active .chat-body');
   const input = page.locator('.ws-view.active .chat-composer textarea').first();
@@ -50,4 +51,43 @@ test('imported skills appear in chat and Markdown previews switch modes', async 
   await app.evaluate(async ({ BrowserWindow }) => { const view = BrowserWindow.getAllWindows()[0].contentView.children.find(child => child.webContents.getURL().includes('SKILL.md')); await view.webContents.executeJavaScript("document.querySelector('.mode').click()"); });
   const raw = await app.evaluate(async ({ BrowserWindow }) => { let view; for (let i = 0; i < 200 && !view; i++) { view = BrowserWindow.getAllWindows()[0].contentView.children.find(child => child.webContents.getURL().includes('raw=1')); if (!view) await new Promise(resolve => setTimeout(resolve, 10)); } if (!view) return ''; if (view.webContents.isLoading()) await new Promise(resolve => view.webContents.once('did-stop-loading', resolve)); return view.webContents.executeJavaScript('document.body.innerText'); });
   assert.match(raw, /\*\*Be clear\*\*/);
+});
+
+test('skills created, edited and deleted in a session update the open dollar picker without importing Pi skills', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'synthesis-live-skills-'));
+  const userData = path.join(temp, 'data'), pi = path.join(temp, 'pi'), library = path.join(userData, 'skills');
+  fs.mkdirSync(path.join(pi, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(pi, 'skills', 'shared.md'), '---\nname: shared-pi\ndescription: Not a Synthesis skill\n---\nPi instructions');
+  const env = { ...process.env, SYNTHESIS_USER_DATA: userData, PI_CODING_AGENT_DIR: pi }; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ ...APP_OPTIONS, cwd: ROOT, env });
+  t.after(async () => { await app.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+  const page = await app.firstWindow();
+  await page.waitForSelector('.ws-view.active textarea');
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const input = page.locator('.ws-view.active textarea');
+  await input.fill('$');
+  await page.locator('.chat-command-empty', { hasText: 'No skills' }).waitFor();
+  const skillDir = path.join(library, 'session-created'), file = path.join(skillDir, 'SKILL.md');
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(file, '# Partial skill');
+  fs.writeFileSync(file, '---\nname: session-created\ndescription: >-\n  Available immediately\n  without restarting.\n---\nFollow this new skill.');
+  // No input event, Settings visit or session restart after the file is saved.
+  const option = page.locator('.chat-command-option').filter({ hasText: '$session-created' });
+  await option.waitFor();
+  assert.match(await option.textContent(), /Available immediately without restarting/);
+  assert.equal(await page.locator('.chat-command-option', { hasText: '$shared-pi' }).count(), 0);
+  fs.writeFileSync(file, '---\nname: session-created\ndescription: Updated during the session\n---\nRevised instructions.');
+  await page.locator('.chat-command-option', { hasText: 'Updated during the session' }).waitFor();
+  await option.click();
+  assert.equal(await input.inputValue(), '$session-created ');
+  assert.equal(await page.locator('.chat-input-mirror .chat-skill-mention').count(), 1);
+  await input.fill('$');
+  await option.waitFor();
+  fs.unlinkSync(file);
+  await page.locator('.chat-command-empty', { hasText: 'No skills' }).waitFor();
+  // A loose Markdown skill saved in the Synthesis library is also usable.
+  fs.writeFileSync(path.join(library, 'Loose.md'), '---\nname: loose-skill\ndescription: A loose skill file\n---\nInstructions');
+  await page.locator('.chat-command-option', { hasText: '$loose-skill' }).waitFor();
+  assert.equal(await page.locator('.chat-command-option', { hasText: '$shared-pi' }).count(), 0);
+  assert.deepEqual(errors, []);
 });
